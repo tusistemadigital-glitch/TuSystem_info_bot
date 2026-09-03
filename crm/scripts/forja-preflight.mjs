@@ -18,7 +18,7 @@ try {
 // Ignora comentarios (#…): un {{ dentro de un comentario no rompe el deploy.
 const pending = new Set();
 for (const line of toml.split("\n")) {
-  const code = line.replace(/#.*$/, "");
+  const code = line.replace(/\r$/, "").replace(/#.*$/, "");
   for (const m of code.matchAll(/\{\{\s*([A-Z0-9_]+)\s*\}\}/g)) pending.add(m[1]);
 }
 

@@ -1,4 +1,4 @@
-# El CLI (forjabot init) resuelve crm y {{D1_DATABASE_ID}} al instalar.
+# El CLI (forjabot init) resuelve crm y el ID de la base D1 al instalar.
 # Los valores de abajo YA son válidos para wrangler tal cual (arrancan sin editar):
 # el worker name lo re-nombra el CLI, y el bucket usa un nombre canónico fijo —
 # así ningún placeholder rompe `wrangler login` ni el parseo del toml.
