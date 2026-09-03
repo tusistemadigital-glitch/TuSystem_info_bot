@@ -775,6 +775,12 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
             listConnectedTools(this.env),
             getComposioContext(this.env),
           ]);
+          console.log(
+            `[debug-composio] toolsCount=${composioTools.length} slugs=${composioTools
+              .slice(0, 5)
+              .map((t) => t.slug)
+              .join(",")}`,
+          );
           if (composioTools.length > 0) {
             const toolLines = composioTools
               .map((t) => {
