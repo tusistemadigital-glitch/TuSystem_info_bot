@@ -92,7 +92,7 @@ BOT_NICHE = "crm"  # el CLI lo reescribe al giro instalado (restaurante, cafeter
 BUFFER_SECONDS = "15"
 # Se llena solo: `forjabot pair` escribe aquí la URL real del worker tras el deploy;
 # y en runtime el bot cae a su propio origin si está vacío (sin edición manual).
-DASHBOARD_BASE_URL = ""
+DASHBOARD_BASE_URL = "https://forja-crm-4b233a.tusystem-digital.workers.dev"
 
 # Si TODAS las respuestas de tu bot fallan con 403 "Request not allowed" hacia
 # api.anthropic.com (típico cuando el proveedor del canal manda sus webhooks
