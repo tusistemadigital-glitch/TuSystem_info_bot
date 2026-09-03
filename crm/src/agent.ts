@@ -755,6 +755,11 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       });
     }
 
+    console.log(
+      `[debug-composio] BOT_TIER=${this.env.BOT_TIER} isPro=${isPro(this.env)} hasComposioKey=${Boolean(
+        (this.env as any).COMPOSIO_API_KEY,
+      )}`,
+    );
     // Composio (integraciones genéricas, superpoder Pro): si el miembro
     // conectó apps vía Composio, anuncia sus tools disponibles — la tool
     // "composio" (tools/composio.ts) solo sabe ejecutar por slug; sin este
