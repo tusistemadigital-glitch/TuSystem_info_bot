@@ -37,6 +37,8 @@ export const businessConfig = {
       "Captación de leads; Integración WhatsApp-CRM; Sincronización de datos; Email marketing automatizado.",
     precios:
       "A medida según el alcance del proyecto. No se cotiza un precio cerrado por chat: el bot debe ofrecer agendar una llamada de diagnóstico para preparar una propuesta.",
+    horarioLlamadas:
+      "Las llamadas de diagnóstico y de atención telefónica son L-V 09:00-14:00 y 17:00-20:00, S 09:00-13:00 (hora de España). Domingo cerrado. Ofrece agendar solo dentro de este horario.",
     sitioWebYRedes: "https://tusystem.es",
     preguntasFrecuentes:
       "¿Cuánto cuesta? Depende del alcance del proyecto; agenda una llamada de diagnóstico gratuita y te preparamos una propuesta a medida. | " +
