@@ -4,7 +4,7 @@
 # así ningún placeholder rompe `wrangler login` ni el parseo del toml.
 # DO NOT commit member-specific values to git.
 
-name = "forja-inmobiliaria-demo"
+name = "forja-inmobiliaria-tusystem"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
 compatibility_flags = ["nodejs_compat"]
@@ -36,15 +36,15 @@ new_sqlite_classes = ["SupportAgent"]
 # en la misma cuenta de Cloudflare NUNCA compartan datos (settings/persona).
 [[d1_databases]]
 binding = "DB"
-database_name = "horizontes_bot_inmobiliaria_demo_db"
-# Crea tu propia base con: wrangler d1 create horizontes_bot_inmobiliaria_demo_db
+database_name = "horizontes_bot_inmobiliaria_tusystem_db"
+# Crea tu propia base con: wrangler d1 create horizontes_bot_inmobiliaria_tusystem_db
 # y pega aquí el database_id que te devuelva (NUNCA reuses el id de otro bot:
 # cada bot necesita su propia base para que los datos no se mezclen).
 database_id = "{{D1_DATABASE_ID}}"
 
 [[vectorize]]
 binding = "KB"
-index_name = "horizontes_bot_inmobiliaria_demo_kb"
+index_name = "horizontes_bot_inmobiliaria_tusystem_kb"
 
 # R2 (OPCIONAL) — solo para lead magnets / catálogo con archivos. R2 pide tarjeta
 # en Cloudflare (aunque el uso sea $0), así que va COMENTADO por default: el bot
@@ -62,8 +62,8 @@ index_name = "horizontes_bot_inmobiliaria_demo_kb"
 # bucket_name = "horizontes-bot-media"
 
 [vars]
-BOT_NAME = "Asistente Inmobiliario"
-BUSINESS_NAME = "Inmobiliaria Demo"
+BOT_NAME = "Asistente de Inmobiliaria TuSystem"
+BUSINESS_NAME = "Inmobiliaria TuSystem"
 BOT_LANGUAGE = "es-ES"
 BOT_TIMEZONE = "America/Mexico_City"  # zona horaria para resolver fechas ("mañana", "el jueves 27"). Sin ella cae a CALCOM_TIMEZONE y luego a CDMX. Cámbiala si tu negocio no está en el centro de México (ej. "America/Bogota", "Europe/Madrid").
 BOT_TIER = "pro"  # 'free' | 'pro'
@@ -95,7 +95,7 @@ BOT_NICHE = "inmobiliaria"  # el CLI lo reescribe al giro instalado (restaurante
 BUFFER_SECONDS = "15"
 # Se llena solo: `forjabot pair` escribe aquí la URL real del worker tras el deploy;
 # y en runtime el bot cae a su propio origin si está vacío (sin edición manual).
-DASHBOARD_BASE_URL = "https://forja-inmobiliaria-demo.workers.dev"
+DASHBOARD_BASE_URL = "https://forja-inmobiliaria-tusystem.workers.dev"
 
 # Si TODAS las respuestas de tu bot fallan con 403 "Request not allowed" hacia
 # api.anthropic.com (típico cuando el proveedor del canal manda sus webhooks

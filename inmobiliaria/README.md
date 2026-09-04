@@ -1,10 +1,28 @@
-# Asistente Inmobiliario — Horizontes IA (Edición PRO)
+# Inmobiliaria TuSystem — Horizontes IA (Edición PRO)
 
-> **Instancia:** bot de demostración para el giro **inmobiliaria** (`BOT_NICHE = "inmobiliaria"`
-> en `wrangler.toml`), aislado del bot de agencia (`../crm`). Trae negocio, catálogo de
-> propiedades y base de conocimiento de ejemplo en `member/` — reemplázalos por los datos
-> reales del cliente antes de publicar. Antes de desplegar necesitas tu propia base D1
-> (ver el comentario junto a `database_id` en `wrangler.toml`).
+> **Instancia:** bot para el giro **inmobiliaria** (`BOT_NICHE = "inmobiliaria"` en
+> `wrangler.toml`), aislado del bot de agencia (`../crm`). Antes de desplegar necesitas
+> tu propia base D1 (ver el comentario junto a `database_id` en `wrangler.toml`).
+>
+> **Prompt "modo experto":** este bot usa un prompt de comportamiento personalizado
+> (`member/system-prompt-override.txt`) que reemplaza TODO el prompt generado por Forja —
+> consulta propiedades en vivo desde Google Sheets vía Composio (`GOOGLESHEETS_BATCH_GET`)
+> y agenda/mueve/cancela visitas con tools dedicadas por vendedor y con email de
+> confirmación. El prompt vive en la base de datos del bot (setting `system_prompt_override`),
+> no en un archivo que el Worker lea en runtime, así que instálalo con:
+> ```
+> pnpm run seed:prompt          # local (miniflare)
+> pnpm run seed:prompt:remote   # bot ya desplegado
+> ```
+> Si editas el prompt, hazlo en `member/system-prompt-override.txt` y regenera el SQL con
+> `node scripts/_gen-seed-prompt.mjs` antes de volver a correr `seed:prompt`.
+>
+> **Pendiente de implementar** (el prompt las referencia pero el código aún no las trae):
+> las tools `agendarVisitaPropiedad`, `moverVisitaPropiedad` y `cancelarVisitaPropiedad`
+> con resolución de fechas en lenguaje natural, asignación de vendedor (Diego/Alfonso/Ismael)
+> y email de confirmación integrado. El catálogo/KB de ejemplo en `member/` (propiedades,
+> zonas, comisiones, créditos, requisitos) quedan sin usar mientras el prompt lea el
+> inventario desde Google Sheets — bórralos cuando confirmes que ya no los necesitas.
 
 Este es tu **chatbot de soporte para Telegram**, listo para personalizar y publicar.
 Responde las preguntas de tus clientes 24/7, busca respuestas en tu propia base de

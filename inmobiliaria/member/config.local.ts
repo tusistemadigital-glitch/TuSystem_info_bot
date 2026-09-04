@@ -8,12 +8,12 @@
 import type { CommentFunnel } from "../src/channels/comment-funnel";
 
 export const memberConfig = {
-  businessName: "Inmobiliaria Demo",
-  botName: "Asistente Inmobiliario",
+  businessName: "Inmobiliaria TuSystem",
+  botName: "Asistente de Inmobiliaria TuSystem",
   language: "es" as "es" | "en",
   tier: "pro" as "free" | "pro",
   timezone: "America/Mexico_City",
-  contactEmail: "contacto@inmobiliariademo.example",
+  contactEmail: "contacto@inmobiliariatusystem.example",
 };
 
 export type MemberConfig = typeof memberConfig;
