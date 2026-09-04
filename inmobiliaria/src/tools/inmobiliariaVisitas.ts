@@ -126,7 +126,6 @@ export function agendarVisitaPropiedadTool(env: Env, getConversationId: () => st
           startDateTime: start,
           endDateTime: end,
           timeZone: tz,
-          attendeeEmail: clienteEmail,
         });
         if (evento.ok) calendarEventId = evento.eventId;
         else console.warn(`[inmobiliaria] no se pudo crear el evento de calendario: ${evento.reason} — la visita queda registrada sin evento`);

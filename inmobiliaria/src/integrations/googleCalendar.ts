@@ -126,7 +126,6 @@ export interface CalendarEventInput {
   startDateTime: string;
   endDateTime: string;
   timeZone: string;
-  attendeeEmail?: string;
 }
 
 export type CalendarResult =
@@ -165,12 +164,15 @@ async function callCalendarApi(
 }
 
 export async function createCalendarEvent(env: Env, input: CalendarEventInput): Promise<CalendarResult> {
+  // NO se manda `attendees`: un service account sin Domain-Wide Delegation
+  // (imposible en una cuenta de Gmail normal, solo existe en Google Workspace)
+  // no puede invitar asistentes — Google responde 403 "forbiddenForServiceAccounts"
+  // y el evento ni se crea. El email del cliente ya va en la descripción.
   const result = await callCalendarApi(env, "POST", "", {
     summary: input.summary,
     description: input.description,
     start: { dateTime: input.startDateTime, timeZone: input.timeZone },
     end: { dateTime: input.endDateTime, timeZone: input.timeZone },
-    ...(input.attendeeEmail ? { attendees: [{ email: input.attendeeEmail }] } : {}),
   });
   return result as CalendarResult;
 }
