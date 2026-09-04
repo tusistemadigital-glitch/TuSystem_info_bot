@@ -17,12 +17,25 @@
 > Si editas el prompt, hazlo en `member/system-prompt-override.txt` y regenera el SQL con
 > `node scripts/_gen-seed-prompt.mjs` antes de volver a correr `seed:prompt`.
 >
-> **Pendiente de implementar** (el prompt las referencia pero el código aún no las trae):
-> las tools `agendarVisitaPropiedad`, `moverVisitaPropiedad` y `cancelarVisitaPropiedad`
-> con resolución de fechas en lenguaje natural, asignación de vendedor (Diego/Alfonso/Ismael)
-> y email de confirmación integrado. El catálogo/KB de ejemplo en `member/` (propiedades,
-> zonas, comisiones, créditos, requisitos) quedan sin usar mientras el prompt lea el
-> inventario desde Google Sheets — bórralos cuando confirmes que ya no los necesitas.
+> **Tools de citas (`agendarVisitaPropiedad`/`moverVisitaPropiedad`/`cancelarVisitaPropiedad`):**
+> implementadas en `src/tools/inmobiliariaVisitas.ts`, con Google Calendar DIRECTO
+> (sin Composio, ver `src/integrations/googleCalendar.ts`), resolución de fechas en
+> lenguaje natural en código (`src/time/naturalDate.ts` — nunca deja que el modelo
+> cuente días), asignación rotativa de vendedor (Diego/Alfonso/Ismael) y email de
+> confirmación (`src/mailer.ts`). Para que agenden en Calendar de verdad (si no,
+> registran la visita solo en el panel y lo dicen honestamente):
+> 1. Crea un service account en Google Cloud Console con la Calendar API habilitada.
+> 2. Comparte tu calendario con su `client_email`, permiso "Realizar cambios en los eventos".
+> 3. `wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON` — pega el JSON del service account
+>    **en base64** (`base64 -w0 credenciales.json`).
+> 4. Pon `GOOGLE_CALENDAR_ID` en `wrangler.toml` (el email del calendario, o `"primary"`).
+> 5. Para el email de confirmación: configura el mailer (`EMAIL_FROM` + binding `send_email`
+>    de Cloudflare, o `RESEND_API_KEY`) y `OWNER_EMAIL` (recibe el aviso interno del equipo).
+>
+> El catálogo/KB de ejemplo en `member/` (propiedades, zonas, comisiones, créditos,
+> requisitos) queda sin usar mientras el prompt lea el inventario desde Google Sheets
+> (`composio` + `GOOGLESHEETS_BATCH_GET`, ya soportado sin código nuevo) — bórralo cuando
+> confirmes que ya no lo necesitas.
 
 Este es tu **chatbot de soporte para Telegram**, listo para personalizar y publicar.
 Responde las preguntas de tus clientes 24/7, busca respuestas en tu propia base de

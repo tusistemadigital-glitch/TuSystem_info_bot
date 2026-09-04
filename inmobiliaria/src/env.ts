@@ -190,7 +190,16 @@ export interface Env {
   CALCOM_EVENT_TYPE_ID?: string;           // event type por defecto (numérico, como string)
   CALCOM_EVENT_TYPES?: string;             // opcional: JSON {"corte":123,"barba":456} servicio→eventTypeId
   CALCOM_TIMEZONE?: string;                // zona horaria (default America/Mexico_City)
-  GOOGLE_SERVICE_ACCOUNT_JSON?: string;  // base64-encoded JSON
+  GOOGLE_SERVICE_ACCOUNT_JSON?: string;  // base64-encoded JSON (service account with Calendar API enabled)
+  // ── Google Calendar directo (nicho inmobiliaria: agendarVisitaPropiedad,
+  // moverVisitaPropiedad, cancelarVisitaPropiedad) ─────────────────────────
+  // Con estas dos vars, esas 3 tools crean/mueven/cancelan el evento DIRECTO
+  // en Google Calendar (sin pasar por Composio). Comparte GOOGLE_SERVICE_ACCOUNT_JSON
+  // de arriba — solo agrega el scope de Calendar en Google Cloud Console y
+  // comparte el calendario con el client_email del service account (permiso
+  // "Realizar cambios en los eventos"). Sin GOOGLE_CALENDAR_ID, esas tools
+  // registran la visita local (sin evento de calendario) y lo dicen.
+  GOOGLE_CALENDAR_ID?: string;  // ID del calendario (ej. el email de la cuenta o "primary")
   // ── Cobros por WhatsApp (superpoder Pro) ─────────────────────────────────
   // Con la llave secreta de Stripe del miembro, la tool sendPaymentLink crea un
   // link de pago y el webhook /api/stripe/webhook confirma cuando pagan. Sin

@@ -327,3 +327,27 @@ CREATE TABLE IF NOT EXISTS media (
 );
 CREATE INDEX IF NOT EXISTS idx_media_conv ON media(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_media_time ON media(created_at);
+
+-- Visitas a propiedades (nicho inmobiliaria) agendadas con las tools dedicadas
+-- agendarVisitaPropiedad / moverVisitaPropiedad / cancelarVisitaPropiedad —
+-- separado de `leads` porque estas SÍ tienen fecha/hora resueltas y un evento
+-- de Google Calendar real que hay que poder mover/cancelar. status:
+-- confirmada | movida | cancelada.
+CREATE TABLE IF NOT EXISTS property_visits (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT,
+  propiedad TEXT NOT NULL,
+  vendedor TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  telefono TEXT,
+  email TEXT,
+  fecha_iso TEXT NOT NULL,
+  fecha_texto TEXT NOT NULL,
+  hora TEXT NOT NULL,
+  calendar_event_id TEXT,
+  status TEXT NOT NULL DEFAULT 'confirmada',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_property_visits_conv ON property_visits(conversation_id, status);

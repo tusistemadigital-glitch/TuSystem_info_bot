@@ -92,6 +92,11 @@ BOT_TIER = "pro"  # 'free' | 'pro'
 #                     (Modo Agencia · skill /demo). Déjalo APAGADO en un bot real:
 #                     es acceso sin autenticar a tu llave de IA.
 BOT_NICHE = "inmobiliaria"  # el CLI lo reescribe al giro instalado (restaurante, cafeteria…)
+# ── Google Calendar directo (agendarVisitaPropiedad/moverVisitaPropiedad/
+#    cancelarVisitaPropiedad) — requiere TAMBIÉN el secret GOOGLE_SERVICE_ACCOUNT_JSON
+#    de abajo. Sin GOOGLE_CALENDAR_ID, esas tools registran la visita solo en
+#    el panel (sin evento de calendario) y lo dicen honestamente.
+# GOOGLE_CALENDAR_ID = "primary"   # o el email del calendario que compartiste con el service account
 BUFFER_SECONDS = "15"
 # Se llena solo: `forjabot pair` escribe aquí la URL real del worker tras el deploy;
 # y en runtime el bot cae a su propio origin si está vacío (sin edición manual).
@@ -134,8 +139,12 @@ DASHBOARD_BASE_URL = "https://forja-inmobiliaria-tusystem.workers.dev"
 #   ZERNIO_API_KEY             per-channel — proveedor UNIFICADO (IG/Messenger/WhatsApp/Telegram/X/…). Bearer del dashboard de zernio.com. Webhook → /webhooks/zernio
 #   ZERNIO_WEBHOOK_SECRET      firma del webhook de Zernio (X-Zernio-Signature). set con: wrangler secret put ZERNIO_WEBHOOK_SECRET
 #   CALCOM_API_KEY             optional — scheduleAppointment (Pro)
-#   GOOGLE_SERVICE_ACCOUNT_JSON  optional — Sheets export (Pro)
-#   RESEND_API_KEY             optional — handoff email
+#   GOOGLE_SERVICE_ACCOUNT_JSON  optional — base64 del JSON del service account de Google
+#                              (Sheets export, y Calendar directo para agendarVisitaPropiedad/
+#                              moverVisitaPropiedad/cancelarVisitaPropiedad del nicho inmobiliaria —
+#                              agrega el scope de Calendar y comparte tu calendario con el
+#                              client_email del service account, permiso "Realizar cambios en los eventos")
+#   RESEND_API_KEY             optional — handoff email, y confirmación de visitas (nicho inmobiliaria)
 #   OWNER_EMAIL                handoff email recipient
 #   OWNER_TELEGRAM_CHAT_ID     handoff notification (default channel — owner /start's the bot)
 #   OWNER_WA_NUMBER            handoff WhatsApp DM recipient (Pro)

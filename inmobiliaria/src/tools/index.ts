@@ -11,6 +11,7 @@ import { scheduleAppointmentTool } from "./scheduleAppointment";
 import { catalogQueryTool } from "./catalogQuery";
 import { crearReservacionTool, tomarPedidoTool } from "./restaurante";
 import { calificarCompradorTool, registrarVisitaTool } from "./inmobiliaria";
+import { agendarVisitaPropiedadTool, moverVisitaPropiedadTool, cancelarVisitaPropiedadTool } from "./inmobiliariaVisitas";
 import { agendarCitaTool, verDisponibilidadTool, cancelarCitaTool } from "./servicios";
 import { registrarPedidoTool } from "./comercio";
 import { registrarProspectoTool } from "./crm";
@@ -112,6 +113,12 @@ export function buildTools(ctx: ToolContext) {
       case "inmobiliaria":
         tools.calificarComprador = calificarCompradorTool(ctx.env, ctx.getConversationId);
         tools.registrarVisita = registrarVisitaTool(ctx.env, ctx.getConversationId);
+        // Citas con fecha/hora concretas — resuelven lenguaje natural en
+        // código y, si hay Google Calendar conectado, crean/mueven/cancelan
+        // el evento real (ver src/tools/inmobiliariaVisitas.ts).
+        tools.agendarVisitaPropiedad = agendarVisitaPropiedadTool(ctx.env, ctx.getConversationId);
+        tools.moverVisitaPropiedad = moverVisitaPropiedadTool(ctx.env, ctx.getConversationId);
+        tools.cancelarVisitaPropiedad = cancelarVisitaPropiedadTool(ctx.env, ctx.getConversationId);
         break;
       case "tienda":
       case "panaderia":
