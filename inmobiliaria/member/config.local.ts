@@ -12,7 +12,7 @@ export const memberConfig = {
   botName: "Asistente de Inmobiliaria TuSystem",
   language: "es" as "es" | "en",
   tier: "pro" as "free" | "pro",
-  timezone: "America/Mexico_City",
+  timezone: "Europe/Madrid",
   contactEmail: "contacto@inmobiliariatusystem.example",
 };
 
