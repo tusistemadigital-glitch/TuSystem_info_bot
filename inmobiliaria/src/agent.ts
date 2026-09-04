@@ -755,11 +755,6 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       });
     }
 
-    console.log(
-      `[debug-composio] BOT_TIER=${this.env.BOT_TIER} isPro=${isPro(this.env)} hasComposioKey=${Boolean(
-        (this.env as any).COMPOSIO_API_KEY,
-      )}`,
-    );
     // Composio (integraciones genéricas, superpoder Pro): si el miembro
     // conectó apps vía Composio, anuncia sus tools disponibles — la tool
     // "composio" (tools/composio.ts) solo sabe ejecutar por slug; sin este
@@ -775,12 +770,6 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
             listConnectedTools(this.env),
             getComposioContext(this.env),
           ]);
-          console.log(
-            `[debug-composio] toolsCount=${composioTools.length} slugs=${composioTools
-              .slice(0, 5)
-              .map((t) => t.slug)
-              .join(",")}`,
-          );
           if (composioTools.length > 0) {
             const toolLines = composioTools
               .map((t) => {

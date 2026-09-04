@@ -152,10 +152,13 @@ export async function executeComposioTool(
     // SIGUE siendo error (verificado en vivo).
     if (!res.ok || json?.successful === false) {
       const raw = json?.error?.message || json?.error || `http_${res.status}`;
-      return { ok: false, error: typeof raw === "string" ? raw : JSON.stringify(raw) };
+      const error = typeof raw === "string" ? raw : JSON.stringify(raw);
+      console.error(`[composio] execute ${slug} failed: ${error}`);
+      return { ok: false, error };
     }
     return { ok: true, data: json?.data ?? json };
   } catch (e: any) {
+    console.error(`[composio] execute ${slug} threw:`, e);
     return { ok: false, error: `transient:${String(e?.message ?? e)}` };
   }
 }
