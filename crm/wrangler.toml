@@ -1,4 +1,4 @@
-# El CLI (forjabot init) resuelve crm y {{D1_DATABASE_ID}} al instalar.
+# El CLI (forjabot init) resuelve crm y el ID de la base D1 al instalar.
 # Los valores de abajo YA son válidos para wrangler tal cual (arrancan sin editar):
 # el worker name lo re-nombra el CLI, y el bucket usa un nombre canónico fijo —
 # así ningún placeholder rompe `wrangler login` ni el parseo del toml.
@@ -37,7 +37,7 @@ new_sqlite_classes = ["SupportAgent"]
 [[d1_databases]]
 binding = "DB"
 database_name = "horizontes_bot_crm_4b233a_db"
-database_id = "{{D1_DATABASE_ID}}"  # crea tu D1 (wrangler d1 create horizontes_bot_crm_4b233a_db) y pega aquí su id
+database_id = "22abe379-58e4-48c8-94f8-3b4bd05aba5e"
 
 [[vectorize]]
 binding = "KB"
@@ -59,10 +59,10 @@ index_name = "horizontes_bot_crm_4b233a_kb"
 # bucket_name = "horizontes-bot-media"
 
 [vars]
-BOT_NAME = "{{BOT_NAME}}"
-BUSINESS_NAME = "{{BUSINESS_NAME}}"
-BOT_LANGUAGE = "es-MX"
-# BOT_TIMEZONE = "America/Mexico_City"  # zona horaria para resolver fechas ("mañana", "el jueves 27"). Sin ella cae a CALCOM_TIMEZONE y luego a CDMX. Cámbiala si tu negocio no está en el centro de México (ej. "America/Bogota", "Europe/Madrid").
+BOT_NAME = "Asistente de TuSystem"
+BUSINESS_NAME = "TuSystem"
+BOT_LANGUAGE = "es-ES"
+BOT_TIMEZONE = "Europe/Madrid"  # zona horaria para resolver fechas ("mañana", "el jueves 27"). Sin ella cae a CALCOM_TIMEZONE y luego a CDMX. Cámbiala si tu negocio no está en el centro de México (ej. "America/Bogota", "Europe/Madrid").
 BOT_TIER = "pro"  # 'free' | 'pro'
 # BLINDAJE_MODE = "full"  # estrictez del Blindaje anti-invento (Pro): 'off' | 'negaciones' | 'full'. Sin línea = 'full' (verificación completa; el prompt ya trata tool/KB/listados/cálculos como respaldo y solo bloquea contradicciones o datos sin fuente). 'negaciones' = confía en TODO dato positivo y solo vigila negaciones — para negocios que listan inventario en vivo. 'off' = apagado.
 # ── White-label del panel (Modo Agencia): TU marca o la del cliente. Opcionales;
@@ -92,7 +92,7 @@ BOT_NICHE = "crm"  # el CLI lo reescribe al giro instalado (restaurante, cafeter
 BUFFER_SECONDS = "15"
 # Se llena solo: `forjabot pair` escribe aquí la URL real del worker tras el deploy;
 # y en runtime el bot cae a su propio origin si está vacío (sin edición manual).
-DASHBOARD_BASE_URL = ""
+DASHBOARD_BASE_URL = "https://forja-crm-4b233a.tusystem-digital.workers.dev"
 
 # Si TODAS las respuestas de tu bot fallan con 403 "Request not allowed" hacia
 # api.anthropic.com (típico cuando el proveedor del canal manda sus webhooks
