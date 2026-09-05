@@ -204,8 +204,10 @@ export function agendarVisitaPropiedadTool(env: Env, getConversationId: () => st
         else console.warn(`[inmobiliaria] no se pudo crear el evento de calendario: ${evento.reason} — la visita queda registrada sin evento`);
       }
 
+      const conversationId = getConversationId();
+      console.log(`[inmobiliaria:agendar] OK conv=${conversationId ?? "?"} propiedad="${propiedad}" fecha=${resuelta.iso} ${hora24} vendedor=${vendedorFinal}`);
       const visitaId = await repo.create({
-        conversationId: getConversationId(),
+        conversationId,
         propiedad,
         vendedor: vendedorFinal,
         nombre,
@@ -269,9 +271,13 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
       horaNueva: z.string().describe("Hora NUEVA deseada"),
     }),
     execute: async ({ propiedad, fechaActual, horaActual, fechaNueva, horaNueva }) => {
+      console.log(
+        `[inmobiliaria:mover] pedido conv=${getConversationId() ?? "?"} propiedad="${propiedad}" actual="${fechaActual}" ${horaActual} -> nueva="${fechaNueva}" ${horaNueva}`,
+      );
       const actual = resolveNaturalDate(env, fechaActual);
       const horaActual24 = actual.ok ? aHora24(horaActual) : null;
       if (!actual.ok || !horaActual24) {
+        console.log(`[inmobiliaria:mover] no entendí fecha/hora ACTUAL (actual.ok=${actual.ok} hora=${horaActual24})`);
         return {
           ok: false as const,
           error: "no_encontrada" as const,
@@ -282,6 +288,7 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
       const nueva = resolveNaturalDate(env, fechaNueva);
       const horaNueva24 = nueva.ok ? aHora24(horaNueva) : null;
       if (!nueva.ok || !horaNueva24) {
+        console.log(`[inmobiliaria:mover] no entendí fecha/hora NUEVA (nueva.ok=${nueva.ok} hora=${horaNueva24})`);
         return {
           ok: false as const,
           error: "fecha_no_entendida" as const,
@@ -289,6 +296,7 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
         };
       }
       if (!dentroDeHorario(nueva.iso, horaNueva24)) {
+        console.log(`[inmobiliaria:mover] horario fuera de rango: ${nueva.iso} ${horaNueva24}`);
         return {
           ok: false as const,
           error: "horario_fuera_rango" as const,
@@ -298,12 +306,16 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
 
       const db = new Db(env.DB);
       const repo = new PropertyVisitsRepo(db);
-      const encontrada = await buscarVisitaObjetivo(repo, getConversationId(), {
+      const convId = getConversationId();
+      const encontrada = await buscarVisitaObjetivo(repo, convId, {
         propiedad,
         fechaIso: actual.iso,
         hora: horaActual24,
       });
       if ("error" in encontrada) {
+        console.log(
+          `[inmobiliaria:mover] ${encontrada.error} — conv=${convId ?? "?"} buscando propiedad="${propiedad}" fechaIso=${actual.iso} hora=${horaActual24}`,
+        );
         return {
           ok: false as const,
           error: encontrada.error,
@@ -322,6 +334,7 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
       if (calendarId) {
         const estado = await isVendorBusy(env, calendarId, nuevoStart, nuevoEnd, tz);
         if (estado.ok && estado.busy) {
+          console.log(`[inmobiliaria:mover] vendedor_no_disponible — ${visita.vendedor} ocupado en ${nuevoStart}`);
           return {
             ok: false as const,
             error: "vendedor_no_disponible" as const,
@@ -331,6 +344,8 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
         if (!estado.ok) {
           console.warn(`[inmobiliaria] no se pudo consultar disponibilidad de ${visita.vendedor} al mover: ${estado.reason} — se asume libre`);
         }
+      } else {
+        console.log(`[inmobiliaria:mover] visita ${visita.id} sin calendarId para vendedor="${visita.vendedor}" — no se valida disponibilidad`);
       }
 
       let calendarEventId = visita.calendar_event_id ?? undefined;
@@ -351,6 +366,7 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
       }
 
       await repo.markMoved(visita.id, { fechaIso: nueva.iso, fechaTexto: nueva.display, hora: horaNueva24, calendarEventId });
+      console.log(`[inmobiliaria:mover] OK visita ${visita.id} movida a ${nueva.iso} ${horaNueva24} (vendedor=${visita.vendedor})`);
 
       const emailCliente = await enviarConfirmacion(env, {
         to: visita.email ?? undefined,
