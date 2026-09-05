@@ -949,6 +949,22 @@ export class SupportAgent extends Agent<Env, SupportAgentState> {
       }
     }
 
+    // ── Guarda de confirmación de citas (siempre, sin importar tier/BLINDAJE) ─
+    // Si la respuesta trae [[confirmar_visita: id]], ese id tiene que apuntar
+    // a una fila real creada por solicitarConfirmacionCancelar/Mover/
+    // CambiarVendedor este turno o uno anterior — nunca a un id que el modelo
+    // se inventó (visto en vivo: copió el id de ejemplo del prompt). Ver
+    // src/tools/confirmMarkerGuard.ts.
+    if (assistantText && assistantText !== LLM_FAILURE_REPLY) {
+      try {
+        const { guardVisitConfirmationMarker } = await import("./tools/confirmMarkerGuard");
+        const marker = await guardVisitConfirmationMarker(this.env, convId, assistantText);
+        assistantText = marker.finalText;
+      } catch (e) {
+        console.warn("[inmobiliaria] guardVisitConfirmationMarker lanzó — se deja la respuesta original:", e);
+      }
+    }
+
     // ── Blindaje anti-invento (Pro): verificación pre-envío ──────────────────
     // Antes de mandar una respuesta que afirme datos (precio/horario/promesa),
     // se contrasta contra los pasajes de KB del turno + contexto del negocio.
