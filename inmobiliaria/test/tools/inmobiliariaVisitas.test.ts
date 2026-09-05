@@ -10,6 +10,7 @@ import {
   moverVisitaPropiedadTool,
   cancelarVisitaPropiedadTool,
   listarVisitasPropiedadTool,
+  cambiarVendedorVisitaPropiedadTool,
 } from "../../src/tools/inmobiliariaVisitas";
 
 // Martes 2026-09-01, dentro del horario L-V 9-14 y 17-20 a las 18:00.
@@ -395,5 +396,166 @@ describe("mover/cancelar cuando el evento ya no existe en Google Calendar (404)"
     const result = (await tool.execute!({ propiedad: "ID 101" }, {} as any)) as any;
 
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("cambiarVendedorVisitaPropiedadTool", () => {
+  it("reasigna el vendedor en la base sin calendario configurado", async () => {
+    const agendar = agendarVisitaPropiedadTool(env, () => convId);
+    await agendar.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, vendedor: "Alfonso", nombre: "Ana", telefono: "600" },
+      {} as any,
+    );
+
+    const cambiar = cambiarVendedorVisitaPropiedadTool(env, () => convId);
+    const result = (await cambiar.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, nuevoVendedor: "Diego" },
+      {} as any,
+    )) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.vendedor).toBe("Diego");
+
+    const listar = listarVisitasPropiedadTool(env, () => convId);
+    const listado = (await listar.execute!({}, {} as any)) as any;
+    expect(listado.visitas[0].vendedor).toBe("Diego");
+    // Día/hora NO cambian al reasignar vendedor.
+    expect(listado.visitas[0].hora).toBe("18:00");
+  });
+
+  it("devuelve mismo_vendedor si ya está asignada a ese vendedor", async () => {
+    const agendar = agendarVisitaPropiedadTool(env, () => convId);
+    await agendar.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, vendedor: "Diego", nombre: "Ana", telefono: "600" },
+      {} as any,
+    );
+    const cambiar = cambiarVendedorVisitaPropiedadTool(env, () => convId);
+    const result = (await cambiar.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, nuevoVendedor: "Diego" },
+      {} as any,
+    )) as any;
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("mismo_vendedor");
+  });
+
+  it("devuelve vendedor_invalido si el nombre no es uno de los 3 vendedores", async () => {
+    const agendar = agendarVisitaPropiedadTool(env, () => convId);
+    await agendar.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, vendedor: "Diego", nombre: "Ana", telefono: "600" },
+      {} as any,
+    );
+    const cambiar = cambiarVendedorVisitaPropiedadTool(env, () => convId);
+    const result = (await cambiar.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, nuevoVendedor: "Roberto" },
+      {} as any,
+    )) as any;
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("vendedor_invalido");
+  });
+
+  it("devuelve no_encontrada si no hay ninguna cita que coincida", async () => {
+    const cambiar = cambiarVendedorVisitaPropiedadTool(env, () => convId);
+    const result = (await cambiar.execute!(
+      { propiedad: "ID 999", fecha: FECHA_OK, hora: HORA_OK, nuevoVendedor: "Diego" },
+      {} as any,
+    )) as any;
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("no_encontrada");
+  });
+
+  describe("con Google Calendar conectado", () => {
+    const { privateKey } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+      publicKeyEncoding: { type: "spki", format: "pem" },
+    });
+    const fakeServiceAccount = { client_email: "bot-test@x.iam.gserviceaccount.com", private_key: privateKey };
+    const ALFONSO_CAL = "alfonso@group.calendar.google.com";
+    const DIEGO_CAL = "diego@group.calendar.google.com";
+
+    const realFetch = global.fetch;
+    afterEach(() => {
+      global.fetch = realFetch;
+    });
+
+    beforeEach(() => {
+      env.GOOGLE_SERVICE_ACCOUNT_JSON = btoa(JSON.stringify(fakeServiceAccount));
+      env.GOOGLE_CALENDAR_ID_ALFONSO = ALFONSO_CAL;
+      env.GOOGLE_CALENDAR_ID_DIEGO = DIEGO_CAL;
+    });
+
+    it("crea el evento en la agenda del nuevo vendedor y borra el de la agenda anterior", async () => {
+      global.fetch = vi.fn(async (url: any, init: any) => {
+        const u = String(url);
+        if (u.includes("/token")) return new Response(JSON.stringify({ access_token: "fake", expires_in: 3600 }), { status: 200 });
+        if (u.includes("/freeBusy")) return new Response(JSON.stringify({ calendars: { [ALFONSO_CAL]: { busy: [] } } }), { status: 200 });
+        if (init?.method === "POST" && u.includes(`/calendars/${encodeURIComponent(ALFONSO_CAL)}/events`)) {
+          return new Response(JSON.stringify({ id: "evt_alfonso_1" }), { status: 200 });
+        }
+        throw new Error(`unexpected fetch ${init?.method ?? "GET"} ${u}`);
+      }) as any;
+      const agendar = agendarVisitaPropiedadTool(env, () => convId);
+      await agendar.execute!(
+        { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, vendedor: "Alfonso", nombre: "Ana", telefono: "600" },
+        {} as any,
+      );
+
+      let createdOn = "";
+      let deletedFrom = "";
+      global.fetch = vi.fn(async (url: any, init: any) => {
+        const u = String(url);
+        if (u.includes("/token")) return new Response(JSON.stringify({ access_token: "fake", expires_in: 3600 }), { status: 200 });
+        if (u.includes("/freeBusy")) return new Response(JSON.stringify({ calendars: { [DIEGO_CAL]: { busy: [] } } }), { status: 200 });
+        if (init?.method === "POST" && u.includes(`/calendars/${encodeURIComponent(DIEGO_CAL)}/events`)) {
+          createdOn = DIEGO_CAL;
+          return new Response(JSON.stringify({ id: "evt_diego_1" }), { status: 200 });
+        }
+        if (init?.method === "DELETE" && u.includes(`/calendars/${encodeURIComponent(ALFONSO_CAL)}/events`)) {
+          deletedFrom = ALFONSO_CAL;
+          return new Response(JSON.stringify({}), { status: 200 });
+        }
+        throw new Error(`unexpected fetch ${init?.method ?? "GET"} ${u}`);
+      }) as any;
+
+      const cambiar = cambiarVendedorVisitaPropiedadTool(env, () => convId);
+      const result = (await cambiar.execute!(
+        { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, nuevoVendedor: "Diego" },
+        {} as any,
+      )) as any;
+
+      expect(result.ok).toBe(true);
+      expect(createdOn).toBe(DIEGO_CAL);
+      expect(deletedFrom).toBe(ALFONSO_CAL);
+    });
+
+    it("vendedor_no_disponible si el nuevo vendedor ya tiene una cita en ese horario", async () => {
+      global.fetch = vi.fn(async (url: any) => {
+        const u = String(url);
+        if (u.includes("/token")) return new Response(JSON.stringify({ access_token: "fake", expires_in: 3600 }), { status: 200 });
+        if (u.includes("/freeBusy")) return new Response(JSON.stringify({ calendars: { [DIEGO_CAL]: { busy: [] } } }), { status: 200 });
+        throw new Error(`unexpected fetch ${u}`);
+      }) as any;
+      const agendar = agendarVisitaPropiedadTool(env, () => convId);
+      await agendar.execute!(
+        { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, vendedor: "Alfonso", nombre: "Ana", telefono: "600" },
+        {} as any,
+      );
+
+      global.fetch = vi.fn(async (url: any) => {
+        const u = String(url);
+        if (u.includes("/token")) return new Response(JSON.stringify({ access_token: "fake", expires_in: 3600 }), { status: 200 });
+        if (u.includes("/freeBusy")) return new Response(JSON.stringify({ calendars: { [DIEGO_CAL]: { busy: [{ start: "x", end: "y" }] } } }), { status: 200 });
+        throw new Error(`unexpected fetch ${u}`);
+      }) as any;
+
+      const cambiar = cambiarVendedorVisitaPropiedadTool(env, () => convId);
+      const result = (await cambiar.execute!(
+        { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, nuevoVendedor: "Diego" },
+        {} as any,
+      )) as any;
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("vendedor_no_disponible");
+    });
   });
 });

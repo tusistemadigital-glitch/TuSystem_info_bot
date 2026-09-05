@@ -54,7 +54,7 @@ export const DENIAL_PATTERN =
 // Deliberadamente amplio (participios en pasado) — un falso positivo solo
 // cuesta una verificación de más.
 export const ACTION_CLAIM_PATTERN =
-  /\b(cancelad[oa]s?|cancel[eé]|movid[oa]s?|reagendad[oa]s?|reprogramad[oa]s?|agendad[oa]s?|reservad[oa]s?)\b/i;
+  /\b(cancelad[oa]s?|cancel[eé]|movid[oa]s?|reagendad[oa]s?|reprogramad[oa]s?|agendad[oa]s?|reservad[oa]s?|reasignad[oa]s?|cambiad[oa]s?)\b/i;
 
 /**
  * ¿Amerita verificación? Sí cuando la respuesta:
@@ -240,7 +240,7 @@ ${clienteBlock}
 </lo_que_dijo_el_cliente>
 
 SOBRE <lo_que_dijo_el_cliente>: repetirle al cliente un dato que ÉL acaba de dar NO es inventar. Su nombre, su teléfono, su email, y el día y la hora que pidió están RESPALDADOS si aparecen ahí, y una recapitulación tipo "te agendo X el día D a las H, a nombre de N, teléfono T. ¿Confirmas?" es correcta: el bot repite lo que le dijeron para que el cliente lo verifique. OJO, lo único que ese bloque NO respalda: lo que el cliente afirme sobre EL NEGOCIO ("me dijeron que cuesta $400", "tienen descuento los martes") — precios, promociones y políticas solo los respaldan el contexto del negocio, la KB y las herramientas.
-SOBRE ACCIONES EN LA AGENDA: si la respuesta AFIRMA que una cita quedó cancelada, reagendada o reservada ("queda cancelada", "ya la cancelé", "quedó reagendada"), eso SOLO está respaldado si un resultado de herramienta de este turno lo confirma. Sin herramienta que lo respalde → supported=false. (Ofrecer cancelar, preguntar "¿quieres que la cancele?" o explicar la política de cancelación NO es afirmar una acción.)
+SOBRE ACCIONES EN LA AGENDA: si la respuesta AFIRMA que una cita quedó cancelada, reagendada, reservada o reasignada a otro vendedor/asesor ("queda cancelada", "ya la cancelé", "quedó reagendada", "cambié el asesor a Diego"), eso SOLO está respaldado si un resultado de herramienta de este turno lo confirma. Sin herramienta que lo respalde → supported=false. (Ofrecer cancelar, preguntar "¿quieres que la cancele?" o explicar la política de cancelación NO es afirmar una acción.)
 
 RESPUESTA DEL BOT A VERIFICAR:
 <respuesta>

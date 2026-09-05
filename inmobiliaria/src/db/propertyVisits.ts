@@ -125,4 +125,12 @@ export class PropertyVisitsRepo {
   async markCancelled(id: string): Promise<void> {
     await this.db.run(`UPDATE property_visits SET status = 'cancelada', updated_at = ? WHERE id = ?`, [Date.now(), id]);
   }
+
+  /** Reasigna el vendedor de una visita (mismo día/hora) — cambiarVendedorVisitaPropiedad. */
+  async reassignVendedor(id: string, changes: { vendedor: string; calendarEventId?: string | null }): Promise<void> {
+    await this.db.run(
+      `UPDATE property_visits SET vendedor = ?, calendar_event_id = ?, updated_at = ? WHERE id = ?`,
+      [changes.vendedor, changes.calendarEventId ?? null, Date.now(), id],
+    );
+  }
 }

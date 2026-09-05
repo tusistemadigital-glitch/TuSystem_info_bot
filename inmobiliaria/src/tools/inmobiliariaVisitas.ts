@@ -427,6 +427,152 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
   });
 }
 
+/**
+ * Reasigna el VENDEDOR de una visita YA agendada, sin tocar día/hora — para
+ * "cámbiala de Alfonso a Diego". moverVisitaPropiedad NUNCA cambia el
+ * vendedor (solo día/hora): sin esta tool, el modelo no tenía ninguna
+ * herramienta real para esta acción y confirmaba el cambio sin haber tocado
+ * ni la base de datos ni Google Calendar (visto en vivo).
+ */
+export function cambiarVendedorVisitaPropiedadTool(env: Env, getConversationId: () => string | null) {
+  return tool({
+    description:
+      "Cambia el VENDEDOR asignado a una visita YA agendada, dejando el mismo día y hora. Necesitas los datos " +
+      "EXACTOS de la cita (fecha, hora, propiedad) para encontrarla — si no los tienes en el historial de ESTA " +
+      "conversación, llama primero listarVisitasPropiedad o pídeselos al cliente. Usa ESTA tool, NUNCA " +
+      "moverVisitaPropiedad, cuando el cliente solo pide cambiar de asesor (moverVisitaPropiedad es solo para día/hora).",
+    inputSchema: z.object({
+      propiedad: z.string().describe("Propiedad de la cita"),
+      fecha: z.string().describe('Fecha ACTUAL de la cita, tal como la dijo el cliente, ej. "el miércoles 9 de septiembre"'),
+      hora: z.string().describe("Hora ACTUAL de la cita"),
+      nuevoVendedor: z.string().describe(`Vendedor nuevo (${VENDEDORES.join(", ")})`),
+    }),
+    execute: async ({ propiedad, fecha, hora, nuevoVendedor }) => {
+      console.log(
+        `[inmobiliaria:cambiarVendedor] pedido conv=${getConversationId() ?? "?"} propiedad="${propiedad}" fecha="${fecha}" hora="${hora}" nuevoVendedor="${nuevoVendedor}"`,
+      );
+      const resuelta = resolveNaturalDate(env, fecha);
+      const hora24 = resuelta.ok ? aHora24(hora) : null;
+      if (!resuelta.ok || !hora24) {
+        console.log(`[inmobiliaria:cambiarVendedor] no entendí fecha/hora de la cita`);
+        return {
+          ok: false as const,
+          error: "no_encontrada" as const,
+          message: "No entendí la fecha u hora de la cita. Pídele al cliente que confirme de nuevo fecha, hora y propiedad, y vuelve a intentar.",
+        };
+      }
+      const match = VENDEDORES.find((v) => v.toLowerCase() === nuevoVendedor.trim().toLowerCase());
+      if (!match) {
+        return {
+          ok: false as const,
+          error: "vendedor_invalido" as const,
+          message: `Vendedor no reconocido. Los vendedores son: ${VENDEDORES.join(", ")}.`,
+        };
+      }
+
+      const db = new Db(env.DB);
+      const repo = new PropertyVisitsRepo(db);
+      const convId = getConversationId();
+      const encontrada = await buscarVisitaObjetivo(repo, convId, { propiedad, fechaIso: resuelta.iso, hora: hora24 });
+      if ("error" in encontrada) {
+        console.log(`[inmobiliaria:cambiarVendedor] ${encontrada.error} — conv=${convId ?? "?"} propiedad="${propiedad}" fechaIso=${resuelta.iso} hora=${hora24}`);
+        return {
+          ok: false as const,
+          error: encontrada.error,
+          message:
+            encontrada.error === "ambiguo"
+              ? "Hay más de una cita que coincide. Pregúntale al cliente cuál es exactamente."
+              : "No encuentro esa cita con los datos que me dan. Pídele al cliente que confirme fecha, hora y propiedad.",
+        };
+      }
+      const visita = encontrada.visita;
+
+      if (match === visita.vendedor) {
+        return {
+          ok: false as const,
+          error: "mismo_vendedor" as const,
+          message: `Esa visita ya está asignada a ${match}.`,
+        };
+      }
+
+      const tz = botTimezone(env);
+      const start = `${visita.fecha_iso}T${visita.hora}:00`;
+      const end = `${visita.fecha_iso}T${addMinutes(visita.hora, DURACION_VISITA_MIN)}:00`;
+      const nuevoCalendarId = vendorCalendarId(env, match);
+
+      if (calendarConfigured(env) && nuevoCalendarId) {
+        const estado = await isVendorBusy(env, nuevoCalendarId, start, end, tz);
+        if (estado.ok && estado.busy) {
+          console.log(`[inmobiliaria:cambiarVendedor] vendedor_no_disponible — ${match} ocupado en ${start}`);
+          return {
+            ok: false as const,
+            error: "vendedor_no_disponible" as const,
+            message: `${match} ya tiene otra cita en ese horario. Ofrece al cliente otro vendedor o mover la cita a otro horario.`,
+          };
+        }
+        if (!estado.ok) {
+          console.warn(`[inmobiliaria] no se pudo consultar disponibilidad de ${match} al reasignar: ${estado.reason} — se asume libre`);
+        }
+      }
+
+      let calendarEventId: string | undefined = visita.calendar_event_id ?? undefined;
+      if (calendarConfigured(env) && nuevoCalendarId) {
+        const evento = await createCalendarEvent(env, nuevoCalendarId, {
+          summary: `Visita ${visita.propiedad} — ${visita.nombre}`,
+          description: [`Vendedor: ${match}`, visita.telefono ? `Teléfono: ${visita.telefono}` : "", visita.email ? `Email: ${visita.email}` : ""]
+            .filter(Boolean)
+            .join("\n"),
+          startDateTime: start,
+          endDateTime: end,
+          timeZone: tz,
+        });
+        if (evento.ok) {
+          calendarEventId = evento.eventId;
+        } else {
+          console.warn(`[inmobiliaria] no se pudo crear el evento en el calendario de ${match}: ${evento.reason} — la visita se reasigna sin evento`);
+          calendarEventId = undefined;
+        }
+
+        // Borra el evento del vendedor ANTERIOR (best-effort; 404 = ya no
+        // existía, no es un fallo — ver el mismo criterio en cancelar/mover).
+        const calendarIdViejo = vendorCalendarId(env, visita.vendedor);
+        if (visita.calendar_event_id && calendarIdViejo) {
+          const del = await deleteCalendarEvent(env, calendarIdViejo, visita.calendar_event_id);
+          if (!del.ok && del.reason !== "http_404") {
+            console.warn(`[inmobiliaria] no se pudo borrar el evento anterior ${visita.calendar_event_id} al reasignar vendedor: ${del.reason}`);
+          }
+        }
+      }
+
+      await repo.reassignVendedor(visita.id, { vendedor: match, calendarEventId });
+      console.log(`[inmobiliaria:cambiarVendedor] OK visita ${visita.id} reasignada de ${visita.vendedor} a ${match}`);
+
+      const emailCliente = await enviarConfirmacion(env, {
+        to: visita.email ?? undefined,
+        nombre: visita.nombre,
+        propiedad: visita.propiedad,
+        fechaDisplay: visita.fecha_texto,
+        hora: visita.hora,
+        vendedor: match,
+        telefono: visita.telefono ?? undefined,
+      });
+      await avisarEquipo(
+        env,
+        `Visita reasignada de vendedor.\nPropiedad: ${visita.propiedad}\nCliente: ${visita.nombre}\nVendedor anterior: ${visita.vendedor}\nVendedor nuevo: ${match}\nFecha: ${visita.fecha_texto} ${visita.hora}`,
+      );
+
+      return {
+        ok: true as const,
+        propiedad: visita.propiedad,
+        fecha: visita.fecha_texto,
+        hora: visita.hora,
+        vendedor: match,
+        emailCliente,
+      };
+    },
+  });
+}
+
 export function cancelarVisitaPropiedadTool(env: Env, getConversationId: () => string | null) {
   return tool({
     description:
