@@ -3,6 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import { ConversationsRepo } from "../../src/db/conversations";
+import { PropertyVisitsRepo } from "../../src/db/propertyVisits";
 import { __resetComposioCacheForTests } from "../../src/integrations/composio";
 import {
   agendarVisitaPropiedadTool,
@@ -311,5 +312,88 @@ describe("listarVisitasPropiedadTool", () => {
     const listar = listarVisitasPropiedadTool(env, () => null);
     const result = (await listar.execute!({}, {} as any)) as any;
     expect(result).toEqual({ ok: true, visitas: [] });
+  });
+});
+
+describe("mover/cancelar cuando el evento ya no existe en Google Calendar (404)", () => {
+  const { privateKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const fakeServiceAccount = { client_email: "bot-test@x.iam.gserviceaccount.com", private_key: privateKey };
+  const DIEGO_CAL = "diego@group.calendar.google.com";
+
+  const realFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = realFetch;
+  });
+
+  beforeEach(() => {
+    env.GOOGLE_SERVICE_ACCOUNT_JSON = btoa(JSON.stringify(fakeServiceAccount));
+    env.GOOGLE_CALENDAR_ID_DIEGO = DIEGO_CAL;
+  });
+
+  async function crearVisitaConEventoFantasma(): Promise<string> {
+    const repo = new PropertyVisitsRepo(new Db(env.DB));
+    return repo.create({
+      conversationId: convId,
+      propiedad: "ID 101",
+      vendedor: "Diego",
+      nombre: "Ana",
+      telefono: "600",
+      fechaIso: "2026-09-11",
+      fechaTexto: "el viernes 11 de septiembre",
+      hora: "17:00",
+      calendarEventId: "evt_borrado_a_mano",
+    });
+  }
+
+  it("moverVisitaPropiedad recrea el evento si el original ya no existe (404) en vez de fallar", async () => {
+    await crearVisitaConEventoFantasma();
+    let created = false;
+    global.fetch = vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (u.includes("/token")) return new Response(JSON.stringify({ access_token: "fake", expires_in: 3600 }), { status: 200 });
+      if (u.includes("/freeBusy")) return new Response(JSON.stringify({ calendars: { [DIEGO_CAL]: { busy: [] } } }), { status: 200 });
+      if (init?.method === "PATCH" && u.includes("evt_borrado_a_mano")) {
+        return new Response(JSON.stringify({ error: { code: 404 } }), { status: 404 });
+      }
+      if (init?.method === "POST" && u.includes(`/calendars/${encodeURIComponent(DIEGO_CAL)}/events`)) {
+        created = true;
+        return new Response(JSON.stringify({ id: "evt_nuevo" }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch ${init?.method ?? "GET"} ${u}`);
+    }) as any;
+
+    const tool = moverVisitaPropiedadTool(env, () => convId);
+    const result = (await tool.execute!(
+      { propiedad: "ID 101", fechaActual: "el viernes 11 de septiembre", horaActual: "17:00", fechaNueva: "el sábado 12 de septiembre", horaNueva: "11:00" },
+      {} as any,
+    )) as any;
+
+    expect(result.ok).toBe(true);
+    expect(created).toBe(true);
+
+    const repo = new PropertyVisitsRepo(new Db(env.DB));
+    const [visita] = await repo.findActive(convId, {});
+    expect(visita.calendar_event_id).toBe("evt_nuevo");
+  });
+
+  it("cancelarVisitaPropiedad no falla si el evento ya no existe (404) — el objetivo ya está cumplido", async () => {
+    await crearVisitaConEventoFantasma();
+    global.fetch = vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (u.includes("/token")) return new Response(JSON.stringify({ access_token: "fake", expires_in: 3600 }), { status: 200 });
+      if (init?.method === "DELETE" && u.includes("evt_borrado_a_mano")) {
+        return new Response(JSON.stringify({ error: { code: 404 } }), { status: 404 });
+      }
+      throw new Error(`unexpected fetch ${init?.method ?? "GET"} ${u}`);
+    }) as any;
+
+    const tool = cancelarVisitaPropiedadTool(env, () => convId);
+    const result = (await tool.execute!({ propiedad: "ID 101" }, {} as any)) as any;
+
+    expect(result.ok).toBe(true);
   });
 });

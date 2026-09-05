@@ -383,11 +383,26 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
 
       let calendarEventId = visita.calendar_event_id ?? undefined;
       if (calendarEventId && calendarId) {
-        const r = await patchCalendarEvent(env, calendarId, calendarEventId, {
+        let r = await patchCalendarEvent(env, calendarId, calendarEventId, {
           startDateTime: nuevoStart,
           endDateTime: nuevoEnd,
           timeZone: tz,
         });
+        if (!r.ok && r.reason === "http_404") {
+          // El evento ya no existe en el calendario (borrado a mano, o el id
+          // guardado quedó desincronizado) — no es motivo para bloquear el
+          // cambio de fecha del cliente, se recrea en el horario nuevo.
+          console.warn(`[inmobiliaria:mover] evento ${calendarEventId} no existe (404) — se recrea en la fecha nueva`);
+          r = await createCalendarEvent(env, calendarId, {
+            summary: `Visita ${visita.propiedad} — ${visita.nombre}`,
+            description: [`Vendedor: ${visita.vendedor}`, visita.telefono ? `Teléfono: ${visita.telefono}` : "", visita.email ? `Email: ${visita.email}` : ""]
+              .filter(Boolean)
+              .join("\n"),
+            startDateTime: nuevoStart,
+            endDateTime: nuevoEnd,
+            timeZone: tz,
+          });
+        }
         if (!r.ok) {
           console.error(`[inmobiliaria] no se pudo mover el evento de calendario ${calendarEventId}: ${r.reason}`);
           return {
@@ -396,6 +411,7 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
             message: "No pude mover el evento en el calendario. NO confirmes el cambio todavía — avisa que lo estás revisando y usa handoffHuman si insiste.",
           };
         }
+        calendarEventId = r.eventId;
       }
 
       await repo.markMoved(visita.id, { fechaIso: nueva.iso, fechaTexto: nueva.display, hora: horaNueva24, calendarEventId });
@@ -459,7 +475,10 @@ export function cancelarVisitaPropiedadTool(env: Env, getConversationId: () => s
       const calendarId = vendorCalendarId(env, visita.vendedor);
       if (visita.calendar_event_id && calendarId) {
         const r = await deleteCalendarEvent(env, calendarId, visita.calendar_event_id);
-        if (!r.ok) {
+        // 404 = el evento ya no está en el calendario (borrado a mano, o el id
+        // guardado quedó desincronizado) — el objetivo de cancelar ("que no
+        // exista el evento") ya está cumplido, no es un fallo.
+        if (!r.ok && r.reason !== "http_404") {
           console.error(`[inmobiliaria] no se pudo cancelar el evento de calendario ${visita.calendar_event_id}: ${r.reason}`);
           return {
             ok: false as const,
