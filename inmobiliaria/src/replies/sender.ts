@@ -1,5 +1,5 @@
-import type { ChannelAdapter, ChannelId, ReplyButton, ReplyMedia } from "../channels/shared";
-import { BUTTON_CHANNELS, MEDIA_CHANNELS } from "../channels/shared";
+import type { ChannelAdapter, ChannelId, InlineButton, ReplyButton, ReplyMedia } from "../channels/shared";
+import { BUTTON_CHANNELS, INLINE_BUTTON_CHANNELS, MEDIA_CHANNELS } from "../channels/shared";
 import type { Env } from "../env";
 import { telegramAdapter } from "../channels/telegram";
 import { webAdapter } from "../channels/web";
@@ -57,6 +57,33 @@ export function extraeBotones(chunks: string[]): { chunks: string[]; buttons?: R
 
 function botonesATexto(buttons: ReplyButton[]): string {
   return buttons.map((b, i) => `${i + 1}) ${b.title}`).join("\n");
+}
+
+// ── Confirmación de citas con botones inline REALES (Sí/No) ─────────────────
+// El modelo termina su respuesta con [[confirmar_visita: <confirmationId>]]
+// (lo pone solicitarConfirmacionCancelar/Mover/CambiarVendedor en
+// src/tools/inmobiliariaVisitas.ts). A diferencia de [[botones: …]], el tap
+// de ESTOS botones NO vuelve como texto — dispara un callback_query que
+// src/index.ts atiende aparte, ejecutando la acción sin pasar por el LLM.
+// En canales sin callback_query nativo (INLINE_BUTTON_CHANNELS) el marcador
+// simplemente se limpia: el texto ya trae la pregunta en palabras, el
+// cliente responde "sí"/"no" y el modelo llama confirmarAccionPendiente.
+
+const CONFIRM_VISITA_RE = /\[\[\s*confirmar_visita\s*:\s*([a-zA-Z0-9-]{4,64})\s*\]\]/gi;
+
+export function extraeConfirmarVisita(chunks: string[]): { chunks: string[]; confirmationId?: string } {
+  let confirmationId: string | undefined;
+  const limpios = chunks
+    .map((c) => {
+      let out = c;
+      for (const m of c.matchAll(CONFIRM_VISITA_RE)) {
+        confirmationId = m[1];
+        out = out.replace(m[0], "");
+      }
+      return out.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+    })
+    .filter((c) => c.length > 0);
+  return { chunks: limpios, confirmationId };
 }
 
 // ── Galería (superpoder, ver skill/galeria.md) ───────────────────────────────
@@ -157,10 +184,14 @@ export async function sendChunkedReply(
   // numerada en texto (canal sin soporte). Si el modelo mandó SOLO el marcador,
   // los botones necesitan cuerpo: se usa la lista de títulos como texto base.
   const ext = extraeBotones(chunks);
+  // Marcador de confirmación de citas → botones inline REALES (Telegram) o se
+  // limpia sin más en el resto (la pregunta ya quedó en el texto). Antes de
+  // extraeMediaIds porque comparte el mismo estilo de limpieza de chunks.
+  const extConfirm = extraeConfirmarVisita(ext.chunks);
   // Marcador de media → OutgoingReply.media (canal con soporte) o el link en
   // texto (canal sin soporte). Se resuelve contra los assets reales: un id
   // inventado se descarta y el texto sale normal.
-  const extMedia = extraeMediaIds(ext.chunks);
+  const extMedia = extraeMediaIds(extConfirm.chunks);
   let finales = extMedia.chunks;
   let media: ReplyMedia[] | undefined;
   if (extMedia.medias.length) {
@@ -190,6 +221,14 @@ export async function sendChunkedReply(
       finales = [buttons.map((b) => b.title).join(" · ")];
     }
   }
+  let inlineButtons: InlineButton[] | undefined;
+  if (extConfirm.confirmationId && INLINE_BUTTON_CHANNELS.has(channel)) {
+    inlineButtons = [
+      { title: "✅ Sí", data: `visitconf:${extConfirm.confirmationId}:yes` },
+      { title: "❌ No", data: `visitconf:${extConfirm.confirmationId}:no` },
+    ];
+  }
+
   if (!finales.length && !media?.length) return;
 
   // Default to a human-like, length-proportional pause between chunks.
@@ -197,7 +236,7 @@ export async function sendChunkedReply(
     interChunkDelayMs ??
     (finales.length > 1 ? chunkDelayMs(finales[0]) : undefined);
   await adapter.sendReply(
-    { channel, channelUserId, chunks: finales, interChunkDelayMs: delay, buttons, media },
+    { channel, channelUserId, chunks: finales, interChunkDelayMs: delay, buttons, inlineButtons, media },
     env,
   );
 }

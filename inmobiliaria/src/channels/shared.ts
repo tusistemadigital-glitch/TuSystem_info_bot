@@ -44,11 +44,31 @@ export interface ReplyButton {
   payload: string; // id que regresa en el tap donde la plataforma lo soporta
 }
 
+// Botón inline REAL (a diferencia de ReplyButton): el tap NO llega como
+// mensaje de texto normal, llega como un evento aparte (callback_query en
+// Telegram) que el canal maneja FUERA del pipeline del LLM — ver
+// src/tools/inmobiliariaVisitas.ts (marcador [[confirmar_visita: id]]) y
+// src/index.ts (ruta del callback). Existe porque un ReplyButton normal no
+// resolvía nada: el tap volvía a depender de que el modelo interpretara la
+// respuesta y llamara la tool correcta (poco confiable en acciones
+// sensibles como cancelar/mover una cita — visto en vivo repetidas veces).
+export interface InlineButton {
+  title: string;
+  data: string; // callback_data — id opaco que el canal regresa intacto en el tap
+}
+
 // Canales que renderizan botones NATIVOS. El resto recibe el fallback numerado
 // en texto (sender.ts) — nada se rompe, nadie ve el marcador crudo.
 export const BUTTON_CHANNELS: ReadonlySet<ChannelId> = new Set([
   "telegram", "whatsapp", "zernio", "messenger", "instagram",
 ]);
+
+// Canales con callback_query nativo (el tap del botón NO pasa por el LLM —
+// ver InlineButton arriba). Hoy solo Telegram lo tiene implementado
+// (src/channels/telegram.ts + la ruta de callback en src/index.ts). En el
+// resto, el marcador [[confirmar_visita: id]] se deja como la pregunta en
+// texto plano — el cliente sigue pudiendo responder "sí"/"no".
+export const INLINE_BUTTON_CHANNELS: ReadonlySet<ChannelId> = new Set(["telegram"]);
 
 // Archivo de la Galería (superpoder, ver skill/galeria.md) que el bot manda en
 // la respuesta. `url` es pública (GET /media/:id del propio worker) — todos los
@@ -88,6 +108,11 @@ export interface OutgoingReply {
   // Botones para el ÚLTIMO chunk (máx 3). Solo lo puebla sender.ts cuando el
   // modelo emite el marcador [[botones: …]] y el canal está en BUTTON_CHANNELS.
   buttons?: ReplyButton[];
+  // Botones INLINE reales (Sí/No) para el ÚLTIMO chunk. Solo lo puebla
+  // sender.ts cuando el modelo emite [[confirmar_visita: id]] y el canal
+  // soporta callback_query nativo (hoy solo Telegram). Mutuamente excluyente
+  // con `buttons`.
+  inlineButtons?: InlineButton[];
   // Media de la Galería (máx 2). Solo lo puebla sender.ts cuando el modelo
   // emite [[media: id]] y el canal está en MEDIA_CHANNELS. Se manda DESPUÉS de
   // los chunks de texto, un mensaje por archivo.

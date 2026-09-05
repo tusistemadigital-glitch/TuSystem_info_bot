@@ -351,3 +351,24 @@ CREATE TABLE IF NOT EXISTS property_visits (
   FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_property_visits_conv ON property_visits(conversation_id, status);
+
+-- Confirmaciones pendientes de una acción de citas (cancelar/mover/cambiar
+-- vendedor) — el modelo NUNCA ejecuta estas 3 acciones directo: primero pide
+-- confirmación (solicitarConfirmacion*), que guarda aquí los argumentos YA
+-- resueltos y validados, y la ejecución real solo pasa por dos caminos
+-- deterministas: el tap del botón inline en Telegram (webhook callback_query,
+-- sin pasar por el LLM) o la tool confirmarAccionPendiente cuando el cliente
+-- responde en texto. args = JSON con los argumentos exactos de la tool interna
+-- (ejecutarCancelarVisita/ejecutarMoverVisita/ejecutarCambiarVendedorVisita).
+CREATE TABLE IF NOT EXISTS pending_visit_confirmations (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  args TEXT NOT NULL,
+  resumen TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pendiente',
+  created_at INTEGER NOT NULL,
+  resolved_at INTEGER,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_pending_visit_conf_conv ON pending_visit_confirmations(conversation_id);

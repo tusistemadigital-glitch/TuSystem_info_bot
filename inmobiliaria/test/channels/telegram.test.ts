@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { telegramAdapter, resolveTelegramFileUrl } from "../../src/channels/telegram";
+import { telegramAdapter, resolveTelegramFileUrl, parseCallbackQuery, answerCallbackQuery, clearInlineKeyboard, sendPlainTelegramMessage } from "../../src/channels/telegram";
 import type { Env } from "../../src/env";
 
 function makeReq(body: unknown): Request {
@@ -174,5 +174,112 @@ describe("telegram — documentos y duración de la nota de voz (Contrato v3 §A
     const msg = await telegramAdapter.parseIncoming(req, { TELEGRAM_BOT_TOKEN: "TOK" } as any);
     expect(msg.audioDurationS).toBe(12);
     vi.unstubAllGlobals();
+  });
+});
+
+describe("telegramAdapter.sendReply — botones inline de confirmación", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("manda inline_keyboard con el callback_data exacto en el ÚLTIMO chunk", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    await telegramAdapter.sendReply(
+      {
+        channel: "telegram",
+        channelUserId: "555",
+        chunks: ["¿Confirmas?"],
+        inlineButtons: [
+          { title: "✅ Sí", data: "visitconf:abc-123:yes" },
+          { title: "❌ No", data: "visitconf:abc-123:no" },
+        ],
+      },
+      env,
+    );
+    const sendMessageCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/sendMessage"));
+    expect(sendMessageCall).toBeDefined();
+    const body = JSON.parse((sendMessageCall![1] as any).body);
+    expect(body.reply_markup).toEqual({
+      inline_keyboard: [
+        [
+          { text: "✅ Sí", callback_data: "visitconf:abc-123:yes" },
+          { text: "❌ No", callback_data: "visitconf:abc-123:no" },
+        ],
+      ],
+    });
+  });
+});
+
+describe("parseCallbackQuery", () => {
+  it("reconoce el tap de un botón de confirmación de citas (Sí)", () => {
+    const tap = parseCallbackQuery({
+      update_id: 1,
+      callback_query: {
+        id: "cbq_1",
+        from: { id: 555 },
+        message: { message_id: 99, chat: { id: 555 } },
+        data: "visitconf:abc-123:yes",
+      },
+    } as any);
+    expect(tap).toEqual({
+      callbackQueryId: "cbq_1",
+      chatId: "555",
+      messageId: 99,
+      confirmationId: "abc-123",
+      decision: "yes",
+    });
+  });
+
+  it("reconoce el tap de No", () => {
+    const tap = parseCallbackQuery({
+      update_id: 2,
+      callback_query: { id: "cbq_2", from: { id: 555 }, data: "visitconf:abc-123:no" },
+    } as any);
+    expect(tap?.decision).toBe("no");
+  });
+
+  it("devuelve null para un update normal (sin callback_query)", () => {
+    expect(parseCallbackQuery({ update_id: 3, message: { text: "hola" } } as any)).toBeNull();
+  });
+
+  it("devuelve null para un callback_query con data que no matchea el formato esperado", () => {
+    expect(
+      parseCallbackQuery({ update_id: 4, callback_query: { id: "cbq_4", from: { id: 1 }, data: "otra_cosa" } } as any),
+    ).toBeNull();
+  });
+});
+
+describe("answerCallbackQuery / clearInlineKeyboard / sendPlainTelegramMessage", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("answerCallbackQuery llama al endpoint correcto con el callback_query_id", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    await answerCallbackQuery(env, "cbq_1", "listo");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/answerCallbackQuery"),
+      expect.objectContaining({ body: JSON.stringify({ callback_query_id: "cbq_1", text: "listo" }) }),
+    );
+  });
+
+  it("clearInlineKeyboard llama a editMessageReplyMarkup con teclado vacío", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    await clearInlineKeyboard(env, "555", 99);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/editMessageReplyMarkup"),
+      expect.objectContaining({
+        body: JSON.stringify({ chat_id: "555", message_id: 99, reply_markup: { inline_keyboard: [] } }),
+      }),
+    );
+  });
+
+  it("sendPlainTelegramMessage manda el texto tal cual", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 200 }));
+    await sendPlainTelegramMessage(env, "555", "hola de nuevo");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/sendMessage"),
+      expect.objectContaining({ body: JSON.stringify({ chat_id: "555", text: "hola de nuevo" }) }),
+    );
   });
 });

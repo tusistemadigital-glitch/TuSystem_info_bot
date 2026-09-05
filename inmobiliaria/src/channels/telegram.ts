@@ -17,6 +17,76 @@ interface TgUpdate {
     photo?: { file_id: string; width: number; height: number }[];
     document?: { file_id: string; file_name?: string; mime_type?: string };
   };
+  // El tap de un botón INLINE (ver InlineButton en channels/shared.ts) — NUNCA
+  // llega como `message`, así que parseIncoming lo ignora (IgnoredUpdate);
+  // src/index.ts lo detecta ANTES de eso y lo enruta aparte (sin pasar por el
+  // LLM) — ver parseCallbackQuery/answerCallbackQuery/clearInlineKeyboard.
+  callback_query?: {
+    id: string;
+    from: { id: number };
+    message?: { message_id: number; chat: { id: number } };
+    data?: string;
+  };
+}
+
+/** El tap de un botón de confirmación de citas, o null si el update no es uno. */
+export interface TelegramConfirmTap {
+  callbackQueryId: string;
+  chatId: string;
+  messageId?: number;
+  confirmationId: string;
+  decision: "yes" | "no";
+}
+
+const CONFIRM_TAP_RE = /^visitconf:([a-zA-Z0-9-]{4,64}):(yes|no)$/;
+
+export function parseCallbackQuery(update: TgUpdate): TelegramConfirmTap | null {
+  const cq = update.callback_query;
+  if (!cq) return null;
+  const m = CONFIRM_TAP_RE.exec(cq.data ?? "");
+  if (!m) return null;
+  const chatId = cq.message?.chat?.id ?? cq.from.id;
+  return {
+    callbackQueryId: cq.id,
+    chatId: String(chatId),
+    messageId: cq.message?.message_id,
+    confirmationId: m[1],
+    decision: m[2] as "yes" | "no",
+  };
+}
+
+/** Quita el "cargando…" del botón tocado. `text` (opcional) sale como toast breve. */
+export async function answerCallbackQuery(env: Env, callbackQueryId: string, text?: string): Promise<void> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  await fetch(`${TG_API}${token}/answerCallbackQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ callback_query_id: callbackQueryId, ...(text ? { text } : {}) }),
+  }).catch((e) => console.error("[telegram] answerCallbackQuery:", e));
+}
+
+/** Quita los botones del mensaje ya resuelto — evita un segundo tap sobre una confirmación muerta. */
+export async function clearInlineKeyboard(env: Env, chatId: string, messageId: number): Promise<void> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  await fetch(`${TG_API}${token}/editMessageReplyMarkup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }),
+  }).catch((e) => console.error("[telegram] clearInlineKeyboard:", e));
+}
+
+/** Mensaje de texto simple, fuera del pipeline normal — lo usa el handler de callback_query. */
+export async function sendPlainTelegramMessage(env: Env, chatId: string, text: string): Promise<void> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  const res = await fetch(`${TG_API}${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  });
+  if (!res.ok) await reportSendFailure("telegram sendMessage (callback)", res);
 }
 
 export async function resolveTelegramFileUrl(
@@ -94,9 +164,16 @@ export const telegramAdapter: ChannelAdapter = {
       const delay = i === 0 ? 0 : reply.interChunkDelayMs ?? 1000;
       if (delay > 0) await new Promise((r) => setTimeout(r, delay));
       const body: Record<string, unknown> = { chat_id: reply.channelUserId, text: reply.chunks[i] };
-      // Botones (opt-in): teclado de una sola vez en el ÚLTIMO chunk. El tap
-      // llega como mensaje de texto normal — sin callback_query que manejar.
-      if (reply.buttons?.length && i === reply.chunks.length - 1) {
+      // Botones inline REALES (Sí/No de confirmación de citas): en el ÚLTIMO
+      // chunk, mutuamente excluyentes con el teclado normal de abajo. El tap
+      // SÍ llega como callback_query — ver parseCallbackQuery/index.ts.
+      if (reply.inlineButtons?.length && i === reply.chunks.length - 1) {
+        body.reply_markup = {
+          inline_keyboard: [reply.inlineButtons.map((b) => ({ text: b.title, callback_data: b.data }))],
+        };
+      } else if (reply.buttons?.length && i === reply.chunks.length - 1) {
+        // Botones (opt-in): teclado de una sola vez en el ÚLTIMO chunk. El tap
+        // llega como mensaje de texto normal — sin callback_query que manejar.
         body.reply_markup = {
           keyboard: reply.buttons.map((b) => [{ text: b.title }]),
           one_time_keyboard: true,

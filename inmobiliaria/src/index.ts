@@ -4,7 +4,8 @@ import type { Env } from "./env";
 import type { ChannelAdapter, IncomingMessage } from "./channels/shared";
 import { IgnoredUpdate } from "./channels/shared";
 import { agentStub } from "./agent-stub";
-import { telegramAdapter } from "./channels/telegram";
+import { telegramAdapter, parseCallbackQuery, answerCallbackQuery, clearInlineKeyboard, sendPlainTelegramMessage } from "./channels/telegram";
+import { resolverConfirmacionPendiente } from "./tools/confirmTapHandler";
 import { webAdapter } from "./channels/web";
 import { demoPage, demoPoll, demoEnabled, demoTurnsUsed, demoOverLimit } from "./demo";
 import { manychatAdapter } from "./channels/manychat";
@@ -288,10 +289,30 @@ app.get("/web/poll", (c) => webPoll(c));
 // secret_token cualquiera con la URL puede inyectar mensajes eligiendo el
 // from.id — quemando la llave de IA del dueño o pausando a un cliente real.
 // Se exige solo si el secret existe, para no romper bots registrados sin él.
-app.post("/webhooks/telegram", (c) => {
+app.post("/webhooks/telegram", async (c) => {
   const esperado = c.env.TELEGRAM_WEBHOOK_SECRET;
   if (esperado && c.req.header("X-Telegram-Bot-Api-Secret-Token") !== esperado) {
     return c.text("forbidden", 403);
+  }
+  // Tap de un botón de confirmación de citas (Sí/No — ver
+  // src/tools/inmobiliariaVisitas.ts y confirmTapHandler.ts): NUNCA es un
+  // `message`, así que routeToAgent lo ignoraría (IgnoredUpdate). Se detecta
+  // ANTES, sobre un CLON del body (el original sigue intacto para
+  // adapter.parseIncoming si no aplica), y se resuelve DETERMINISTA — sin
+  // pasar por el LLM — que es justo el punto: el modelo ya no decide si
+  // ejecutar o no la acción, solo la pregunta la mandó.
+  const tap = parseCallbackQuery((await c.req.raw.clone().json().catch(() => ({}))) as any);
+  if (tap) {
+    try {
+      const texto = await resolverConfirmacionPendiente(c.env, tap.confirmationId, tap.decision);
+      await answerCallbackQuery(c.env, tap.callbackQueryId);
+      if (tap.messageId) await clearInlineKeyboard(c.env, tap.chatId, tap.messageId);
+      await sendPlainTelegramMessage(c.env, tap.chatId, texto);
+    } catch (e) {
+      console.error("[telegram] callback_query de confirmación falló:", e);
+      await answerCallbackQuery(c.env, tap.callbackQueryId, "Hubo un problema — intenta de nuevo.");
+    }
+    return c.text("ok", 200);
   }
   return routeToAgent(c, telegramAdapter);
 });

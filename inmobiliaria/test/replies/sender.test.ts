@@ -3,6 +3,7 @@ import {
   sendChunkedReply,
   pickAdapter,
   chunkDelayMs,
+  extraeConfirmarVisita,
 } from "../../src/replies/sender";
 import type { ChannelAdapter } from "../../src/channels/shared";
 
@@ -50,6 +51,55 @@ describe("sendChunkedReply", () => {
     await sendChunkedReply(adapter, "telegram", "u", ["only one"], {} as any);
     const arg = (sendReply.mock.calls[0] as any[])[0];
     expect(arg.interChunkDelayMs).toBeUndefined();
+  });
+});
+
+describe("extraeConfirmarVisita", () => {
+  it("extrae el confirmationId y limpia el marcador del texto", () => {
+    const r = extraeConfirmarVisita(["¿Confirmas que quieres cancelar tu visita?\n\n[[confirmar_visita: abc-123]]"]);
+    expect(r.confirmationId).toBe("abc-123");
+    expect(r.chunks).toEqual(["¿Confirmas que quieres cancelar tu visita?"]);
+  });
+
+  it("sin marcador, deja los chunks intactos y confirmationId undefined", () => {
+    const r = extraeConfirmarVisita(["hola, ¿en qué te ayudo?"]);
+    expect(r.confirmationId).toBeUndefined();
+    expect(r.chunks).toEqual(["hola, ¿en qué te ayudo?"]);
+  });
+});
+
+describe("sendChunkedReply con [[confirmar_visita: …]]", () => {
+  it("en Telegram, adjunta botones inline Sí/No con el callback_data correcto y limpia el marcador del texto", async () => {
+    const sendReply = vi.fn(async () => {});
+    const adapter = { sendReply, parseIncoming: vi.fn() } as unknown as ChannelAdapter;
+    await sendChunkedReply(
+      adapter,
+      "telegram",
+      "u1",
+      ["¿Confirmas que quieres cancelar tu visita?\n\n[[confirmar_visita: abc-123]]"],
+      {} as any,
+    );
+    const arg = (sendReply.mock.calls[0] as any[])[0];
+    expect(arg.chunks).toEqual(["¿Confirmas que quieres cancelar tu visita?"]);
+    expect(arg.inlineButtons).toEqual([
+      { title: "✅ Sí", data: "visitconf:abc-123:yes" },
+      { title: "❌ No", data: "visitconf:abc-123:no" },
+    ]);
+  });
+
+  it("en un canal sin callback_query nativo, limpia el marcador pero NO manda inlineButtons", async () => {
+    const sendReply = vi.fn(async () => {});
+    const adapter = { sendReply, parseIncoming: vi.fn() } as unknown as ChannelAdapter;
+    await sendChunkedReply(
+      adapter,
+      "whatsapp",
+      "u1",
+      ["¿Confirmas que quieres cancelar tu visita?\n\n[[confirmar_visita: abc-123]]"],
+      {} as any,
+    );
+    const arg = (sendReply.mock.calls[0] as any[])[0];
+    expect(arg.chunks).toEqual(["¿Confirmas que quieres cancelar tu visita?"]);
+    expect(arg.inlineButtons).toBeUndefined();
   });
 });
 

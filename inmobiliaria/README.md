@@ -17,13 +17,19 @@
 > Si editas el prompt, hazlo en `member/system-prompt-override.txt` y regenera el SQL con
 > `node scripts/_gen-seed-prompt.mjs` antes de volver a correr `seed:prompt`.
 >
-> **Tools de citas (`agendarVisitaPropiedad`/`moverVisitaPropiedad`/`cancelarVisitaPropiedad`):**
-> implementadas en `src/tools/inmobiliariaVisitas.ts`, con Google Calendar DIRECTO
-> (sin Composio, ver `src/integrations/googleCalendar.ts`), resolución de fechas en
-> lenguaje natural en código (`src/time/naturalDate.ts` — nunca deja que el modelo
-> cuente días), asignación rotativa de vendedor (Diego/Alfonso/Ismael) y email de
-> confirmación (`src/mailer.ts`). Para que agenden en Calendar de verdad (si no,
-> registran la visita solo en el panel y lo dicen honestamente):
+> **Tools de citas** (`src/tools/inmobiliariaVisitas.ts`): `agendarVisitaPropiedad` (cita
+> nueva, un solo paso) y `listarVisitasPropiedad` (consulta real a la BD). Mover, cancelar
+> y cambiar de vendedor van SIEMPRE en 2 pasos — `solicitarConfirmacionMover/Cancelar/
+> CambiarVendedor` prepara y valida todo, y la ejecución real solo pasa por
+> `confirmarAccionPendiente` (si el cliente responde en texto) o por el tap de un botón
+> inline real en Telegram (`callback_query`, atendido en `src/index.ts` +
+> `src/tools/confirmTapHandler.ts`, **sin pasar por el LLM**) — existe porque el modelo
+> confirmaba estas 3 acciones sin haberlas ejecutado de verdad. Además: Google Calendar
+> DIRECTO por vendedor (sin Composio, ver `src/integrations/googleCalendar.ts`),
+> resolución de fechas en lenguaje natural en código (`src/time/naturalDate.ts` — nunca
+> deja que el modelo cuente días), y email de confirmación por Composio Gmail o
+> `src/mailer.ts`. Para que agenden en Calendar de verdad (si no, registran la visita solo
+> en el panel y lo dicen honestamente):
 > 1. Crea un service account en Google Cloud Console con la Calendar API habilitada.
 > 2. Comparte tu calendario con su `client_email`, permiso "Realizar cambios en los eventos".
 > 3. `wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON` — pega el JSON del service account

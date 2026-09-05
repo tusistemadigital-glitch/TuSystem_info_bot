@@ -13,10 +13,11 @@ import { crearReservacionTool, tomarPedidoTool } from "./restaurante";
 import { calificarCompradorTool, registrarVisitaTool } from "./inmobiliaria";
 import {
   agendarVisitaPropiedadTool,
-  moverVisitaPropiedadTool,
-  cancelarVisitaPropiedadTool,
   listarVisitasPropiedadTool,
-  cambiarVendedorVisitaPropiedadTool,
+  solicitarConfirmacionCancelarTool,
+  solicitarConfirmacionMoverTool,
+  solicitarConfirmacionCambiarVendedorTool,
+  confirmarAccionPendienteTool,
 } from "./inmobiliariaVisitas";
 import { agendarCitaTool, verDisponibilidadTool, cancelarCitaTool } from "./servicios";
 import { registrarPedidoTool } from "./comercio";
@@ -120,17 +121,23 @@ export function buildTools(ctx: ToolContext) {
         tools.calificarComprador = calificarCompradorTool(ctx.env, ctx.getConversationId);
         tools.registrarVisita = registrarVisitaTool(ctx.env, ctx.getConversationId);
         // Citas con fecha/hora concretas — resuelven lenguaje natural en
-        // código y, si hay Google Calendar conectado, crean/mueven/cancelan
-        // el evento real (ver src/tools/inmobiliariaVisitas.ts).
+        // código y, si hay Google Calendar conectado, crean el evento real
+        // (ver src/tools/inmobiliariaVisitas.ts). Agendar SÍ es de un solo
+        // paso (nunca falló en vivo); mover/cancelar/reasignar vendedor NO se
+        // registran directo — el modelo confirmaba estas 3 sin haber llamado
+        // la tool real (visto en vivo repetidas veces), así que el único
+        // camino es pedir confirmación (con botones inline reales en
+        // Telegram) y ejecutar DETERMINISTA por el tap o por
+        // confirmarAccionPendiente — nunca por el modelo reconstruyendo la
+        // acción de memoria.
         tools.agendarVisitaPropiedad = agendarVisitaPropiedadTool(ctx.env, ctx.getConversationId);
-        tools.moverVisitaPropiedad = moverVisitaPropiedadTool(ctx.env, ctx.getConversationId);
-        tools.cancelarVisitaPropiedad = cancelarVisitaPropiedadTool(ctx.env, ctx.getConversationId);
         // Consulta real a la BD — evita que el modelo recite de memoria una
         // cita agendada turnos atrás y se equivoque de fecha (ver inmobiliariaVisitas.ts).
         tools.listarVisitasPropiedad = listarVisitasPropiedadTool(ctx.env, ctx.getConversationId);
-        // Reasignar vendedor (sin tocar día/hora) — moverVisitaPropiedad NUNCA
-        // cambia el vendedor.
-        tools.cambiarVendedorVisitaPropiedad = cambiarVendedorVisitaPropiedadTool(ctx.env, ctx.getConversationId);
+        tools.solicitarConfirmacionCancelar = solicitarConfirmacionCancelarTool(ctx.env, ctx.getConversationId);
+        tools.solicitarConfirmacionMover = solicitarConfirmacionMoverTool(ctx.env, ctx.getConversationId);
+        tools.solicitarConfirmacionCambiarVendedor = solicitarConfirmacionCambiarVendedorTool(ctx.env, ctx.getConversationId);
+        tools.confirmarAccionPendiente = confirmarAccionPendienteTool(ctx.env, ctx.getConversationId);
         break;
       case "tienda":
       case "panaderia":

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Env } from "../env";
 import { Db } from "../db/client";
 import { PropertyVisitsRepo, VENDEDORES, type PropertyVisit } from "../db/propertyVisits";
+import { PendingVisitConfirmationsRepo, type PendingVisitAction } from "../db/pendingVisitConfirmations";
 import { resolveNaturalDate, weekdayOf } from "../time/naturalDate";
 import { botTimezone } from "../time/dateAnchor";
 import { aHora24 } from "./servicios";
@@ -276,19 +277,17 @@ export function listarVisitasPropiedadTool(env: Env, getConversationId: () => st
   });
 }
 
-export function moverVisitaPropiedadTool(env: Env, getConversationId: () => string | null) {
-  return tool({
-    description:
-      "Cambia el día/hora de una visita YA agendada. Necesitas los datos EXACTOS de la cita original (fecha, hora, propiedad) para encontrarla — si no los tienes en el historial de ESTA conversación, pídeselos al cliente antes de llamar esta tool. Las 4 fechas/horas SIEMPRE en palabras textuales del cliente, nunca las conviertas tú a AAAA-MM-DD.",
-    inputSchema: z.object({
-      propiedad: z.string().describe("Propiedad de la cita a mover"),
-      fechaActual: z.string().describe('Fecha ACTUAL de la cita, tal como la dijo el cliente, ej. "el viernes 28 de agosto"'),
-      horaActual: z.string().describe("Hora ACTUAL de la cita"),
-      fechaNueva: z.string().describe('Fecha NUEVA deseada, tal como la dijo el cliente, ej. "el lunes"'),
-      horaNueva: z.string().describe("Hora NUEVA deseada"),
-    }),
-    execute: async ({ propiedad, fechaActual, horaActual, fechaNueva, horaNueva }) => {
-      console.log(
+export interface EjecutarMoverVisitaArgs {
+  propiedad: string;
+  fechaActual: string;
+  horaActual: string;
+  fechaNueva: string;
+  horaNueva: string;
+}
+
+export async function ejecutarMoverVisita(env: Env, getConversationId: () => string | null, args: EjecutarMoverVisitaArgs) {
+  const { propiedad, fechaActual, horaActual, fechaNueva, horaNueva } = args;
+  console.log(
         `[inmobiliaria:mover] pedido conv=${getConversationId() ?? "?"} propiedad="${propiedad}" actual="${fechaActual}" ${horaActual} -> nueva="${fechaNueva}" ${horaNueva}`,
       );
       const actual = resolveNaturalDate(env, fechaActual);
@@ -415,15 +414,28 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
         `Visita movida.\nPropiedad: ${visita.propiedad}\nCliente: ${visita.nombre}\nNueva fecha: ${nueva.display} ${horaNueva24}\nVendedor: ${visita.vendedor}`,
       );
 
-      return {
-        ok: true as const,
-        propiedad: visita.propiedad,
-        fecha: nueva.display,
-        hora: horaNueva24,
-        vendedor: visita.vendedor,
-        emailCliente,
-      };
-    },
+  return {
+    ok: true as const,
+    propiedad: visita.propiedad,
+    fecha: nueva.display,
+    hora: horaNueva24,
+    vendedor: visita.vendedor,
+    emailCliente,
+  };
+}
+
+export function moverVisitaPropiedadTool(env: Env, getConversationId: () => string | null) {
+  return tool({
+    description:
+      "Cambia el día/hora de una visita YA agendada. Necesitas los datos EXACTOS de la cita original (fecha, hora, propiedad) para encontrarla — si no los tienes en el historial de ESTA conversación, pídeselos al cliente antes de llamar esta tool. Las 4 fechas/horas SIEMPRE en palabras textuales del cliente, nunca las conviertas tú a AAAA-MM-DD.",
+    inputSchema: z.object({
+      propiedad: z.string().describe("Propiedad de la cita a mover"),
+      fechaActual: z.string().describe('Fecha ACTUAL de la cita, tal como la dijo el cliente, ej. "el viernes 28 de agosto"'),
+      horaActual: z.string().describe("Hora ACTUAL de la cita"),
+      fechaNueva: z.string().describe('Fecha NUEVA deseada, tal como la dijo el cliente, ej. "el lunes"'),
+      horaNueva: z.string().describe("Hora NUEVA deseada"),
+    }),
+    execute: (args) => ejecutarMoverVisita(env, getConversationId, args),
   });
 }
 
@@ -434,21 +446,20 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
  * herramienta real para esta acción y confirmaba el cambio sin haber tocado
  * ni la base de datos ni Google Calendar (visto en vivo).
  */
-export function cambiarVendedorVisitaPropiedadTool(env: Env, getConversationId: () => string | null) {
-  return tool({
-    description:
-      "Cambia el VENDEDOR asignado a una visita YA agendada, dejando el mismo día y hora. Necesitas los datos " +
-      "EXACTOS de la cita (fecha, hora, propiedad) para encontrarla — si no los tienes en el historial de ESTA " +
-      "conversación, llama primero listarVisitasPropiedad o pídeselos al cliente. Usa ESTA tool, NUNCA " +
-      "moverVisitaPropiedad, cuando el cliente solo pide cambiar de asesor (moverVisitaPropiedad es solo para día/hora).",
-    inputSchema: z.object({
-      propiedad: z.string().describe("Propiedad de la cita"),
-      fecha: z.string().describe('Fecha ACTUAL de la cita, tal como la dijo el cliente, ej. "el miércoles 9 de septiembre"'),
-      hora: z.string().describe("Hora ACTUAL de la cita"),
-      nuevoVendedor: z.string().describe(`Vendedor nuevo (${VENDEDORES.join(", ")})`),
-    }),
-    execute: async ({ propiedad, fecha, hora, nuevoVendedor }) => {
-      console.log(
+export interface EjecutarCambiarVendedorVisitaArgs {
+  propiedad: string;
+  fecha: string;
+  hora: string;
+  nuevoVendedor: string;
+}
+
+export async function ejecutarCambiarVendedorVisita(
+  env: Env,
+  getConversationId: () => string | null,
+  args: EjecutarCambiarVendedorVisitaArgs,
+) {
+  const { propiedad, fecha, hora, nuevoVendedor } = args;
+  console.log(
         `[inmobiliaria:cambiarVendedor] pedido conv=${getConversationId() ?? "?"} propiedad="${propiedad}" fecha="${fecha}" hora="${hora}" nuevoVendedor="${nuevoVendedor}"`,
       );
       const resuelta = resolveNaturalDate(env, fecha);
@@ -561,29 +572,42 @@ export function cambiarVendedorVisitaPropiedadTool(env: Env, getConversationId: 
         `Visita reasignada de vendedor.\nPropiedad: ${visita.propiedad}\nCliente: ${visita.nombre}\nVendedor anterior: ${visita.vendedor}\nVendedor nuevo: ${match}\nFecha: ${visita.fecha_texto} ${visita.hora}`,
       );
 
-      return {
-        ok: true as const,
-        propiedad: visita.propiedad,
-        fecha: visita.fecha_texto,
-        hora: visita.hora,
-        vendedor: match,
-        emailCliente,
-      };
-    },
+  return {
+    ok: true as const,
+    propiedad: visita.propiedad,
+    fecha: visita.fecha_texto,
+    hora: visita.hora,
+    vendedor: match,
+    emailCliente,
+  };
+}
+
+export function cambiarVendedorVisitaPropiedadTool(env: Env, getConversationId: () => string | null) {
+  return tool({
+    description:
+      "Cambia el VENDEDOR asignado a una visita YA agendada, dejando el mismo día y hora. Necesitas los datos " +
+      "EXACTOS de la cita (fecha, hora, propiedad) para encontrarla — si no los tienes en el historial de ESTA " +
+      "conversación, llama primero listarVisitasPropiedad o pídeselos al cliente. Usa ESTA tool, NUNCA " +
+      "moverVisitaPropiedad, cuando el cliente solo pide cambiar de asesor (moverVisitaPropiedad es solo para día/hora).",
+    inputSchema: z.object({
+      propiedad: z.string().describe("Propiedad de la cita"),
+      fecha: z.string().describe('Fecha ACTUAL de la cita, tal como la dijo el cliente, ej. "el miércoles 9 de septiembre"'),
+      hora: z.string().describe("Hora ACTUAL de la cita"),
+      nuevoVendedor: z.string().describe(`Vendedor nuevo (${VENDEDORES.join(", ")})`),
+    }),
+    execute: (args) => ejecutarCambiarVendedorVisita(env, getConversationId, args),
   });
 }
 
-export function cancelarVisitaPropiedadTool(env: Env, getConversationId: () => string | null) {
-  return tool({
-    description:
-      "CANCELA una visita ya agendada. Dale los datos que el cliente recuerde (propiedad, fecha y/o hora) para encontrarla — si hay varias que coinciden o ninguna, esta tool te lo dice; NUNCA canceles ni afirmes que cancelaste sin un ok:true de esta tool.",
-    inputSchema: z.object({
-      propiedad: z.string().optional().describe("Propiedad de la cita a cancelar, si el cliente la dio"),
-      fecha: z.string().optional().describe("Fecha de la cita tal como la dijo el cliente, si la dio"),
-      hora: z.string().optional().describe("Hora de la cita, si la dio"),
-    }),
-    execute: async ({ propiedad, fecha, hora }) => {
-      console.log(`[inmobiliaria:cancelar] pedido conv=${getConversationId() ?? "?"} propiedad="${propiedad ?? "?"}" fecha="${fecha ?? "?"}" hora="${hora ?? "?"}"`);
+export interface EjecutarCancelarVisitaArgs {
+  propiedad?: string;
+  fecha?: string;
+  hora?: string;
+}
+
+export async function ejecutarCancelarVisita(env: Env, getConversationId: () => string | null, args: EjecutarCancelarVisitaArgs) {
+  const { propiedad, fecha, hora } = args;
+  console.log(`[inmobiliaria:cancelar] pedido conv=${getConversationId() ?? "?"} propiedad="${propiedad ?? "?"}" fecha="${fecha ?? "?"}" hora="${hora ?? "?"}"`);
       const fechaIso = fecha ? (() => { const r = resolveNaturalDate(env, fecha); return r.ok ? r.iso : undefined; })() : undefined;
       const horaResuelta = hora ? aHora24(hora) ?? undefined : undefined;
 
@@ -629,7 +653,299 @@ export function cancelarVisitaPropiedadTool(env: Env, getConversationId: () => s
       console.log(`[inmobiliaria:cancelar] OK visita ${visita.id} cancelada (propiedad="${visita.propiedad}" vendedor=${visita.vendedor} era ${visita.fecha_texto} ${visita.hora})`);
       await avisarEquipo(env, `Visita cancelada.\nPropiedad: ${visita.propiedad}\nCliente: ${visita.nombre}\nEra: ${visita.fecha_texto} ${visita.hora}`);
 
-      return { ok: true as const, propiedad: visita.propiedad, fecha: visita.fecha_texto, hora: visita.hora };
+  return { ok: true as const, propiedad: visita.propiedad, fecha: visita.fecha_texto, hora: visita.hora };
+}
+
+export function cancelarVisitaPropiedadTool(env: Env, getConversationId: () => string | null) {
+  return tool({
+    description:
+      "CANCELA una visita ya agendada. Dale los datos que el cliente recuerde (propiedad, fecha y/o hora) para encontrarla — si hay varias que coinciden o ninguna, esta tool te lo dice; NUNCA canceles ni afirmes que cancelaste sin un ok:true de esta tool.",
+    inputSchema: z.object({
+      propiedad: z.string().optional().describe("Propiedad de la cita a cancelar, si el cliente la dio"),
+      fecha: z.string().optional().describe("Fecha de la cita tal como la dijo el cliente, si la dio"),
+      hora: z.string().optional().describe("Hora de la cita, si la dio"),
+    }),
+    execute: (args) => ejecutarCancelarVisita(env, getConversationId, args),
+  });
+}
+
+// ── Confirmación obligatoria antes de cancelar/mover/cambiar vendedor ───────
+// Haiku confirmaba estas 3 acciones sin haber llamado la tool real (visto en
+// vivo repetidas veces — el Blindaje lo atrapaba, pero la cita nunca cambiaba
+// de verdad). En vez de que el modelo ejecute la mutación directo, ahora:
+//  1) solicitarConfirmacion* valida todo (encuentra la visita, checa
+//     disponibilidad si aplica) y SOLO guarda una fila "pendiente" con los
+//     argumentos ya resueltos — no toca la BD ni el Calendario todavía.
+//  2) La ejecución real pasa por UNO de dos caminos deterministas: el tap de
+//     un botón inline en Telegram (webhook callback_query — ver
+//     src/channels/telegram.ts — sin pasar por el LLM en absoluto) o la tool
+//     confirmarAccionPendiente cuando el cliente responde "sí"/"no" en texto.
+// El marcador [[confirmar_visita: id]] en el resumen lo convierte sender.ts
+// en botones ✅/❌ reales en los canales que los soportan (hoy Telegram).
+
+async function crearConfirmacionPendiente(
+  env: Env,
+  conversationId: string,
+  action: PendingVisitAction,
+  args: unknown,
+  pregunta: string,
+): Promise<{ confirmationId: string; resumen: string }> {
+  const db = new Db(env.DB);
+  const confirmationId = await new PendingVisitConfirmationsRepo(db).create({ conversationId, action, args, resumen: pregunta });
+  console.log(`[inmobiliaria:solicitarConfirmacion] ${action} id=${confirmationId}`);
+  return { confirmationId, resumen: `${pregunta}\n\n[[confirmar_visita: ${confirmationId}]]` };
+}
+
+const SIN_CONVERSACION = {
+  ok: false as const,
+  error: "sin_conversacion" as const,
+  message: "No se pudo preparar la confirmación. Intenta de nuevo.",
+};
+
+export function solicitarConfirmacionCancelarTool(env: Env, getConversationId: () => string | null) {
+  return tool({
+    description:
+      "Prepara la CANCELACIÓN de una visita ya agendada y pide confirmación al cliente (con botones si el canal los " +
+      "soporta) — NUNCA llames cancelarVisitaPropiedad directo, esta tool la reemplaza. Dale los datos que el " +
+      "cliente recuerde (propiedad, fecha y/o hora); si no los tienes, llama primero listarVisitasPropiedad. Tu " +
+      "respuesta de este turno debe ser EXACTAMENTE el campo `resumen` del resultado — no lo reescribas ni le quites " +
+      "el marcador [[confirmar_visita: ...]] que trae.",
+    inputSchema: z.object({
+      propiedad: z.string().optional().describe("Propiedad de la cita a cancelar, si el cliente la dio"),
+      fecha: z.string().optional().describe("Fecha de la cita tal como la dijo el cliente, si la dio"),
+      hora: z.string().optional().describe("Hora de la cita, si la dio"),
+    }),
+    execute: async ({ propiedad, fecha, hora }) => {
+      const convId = getConversationId();
+      if (!convId) return SIN_CONVERSACION;
+
+      const fechaIso = fecha ? (() => { const r = resolveNaturalDate(env, fecha); return r.ok ? r.iso : undefined; })() : undefined;
+      const horaResuelta = hora ? aHora24(hora) ?? undefined : undefined;
+      const db = new Db(env.DB);
+      const repo = new PropertyVisitsRepo(db);
+      const encontrada = await buscarVisitaObjetivo(repo, convId, { propiedad, fechaIso, hora: horaResuelta });
+      if ("error" in encontrada) {
+        return {
+          ok: false as const,
+          error: encontrada.error,
+          message:
+            encontrada.error === "ambiguo"
+              ? "Hay más de una cita que coincide. Muéstrale la lista al cliente y pregúntale cuál quiere cancelar."
+              : "No encuentro ninguna cita con esos datos. Pídele al cliente los datos exactos de su cita.",
+        };
+      }
+      const visita = encontrada.visita;
+      const args: EjecutarCancelarVisitaArgs = { propiedad: visita.propiedad, fecha: visita.fecha_texto, hora: visita.hora };
+      const pregunta = `¿Confirmas que quieres cancelar tu visita a ${visita.propiedad} el ${visita.fecha_texto} a las ${visita.hora} con ${visita.vendedor}? Responde "sí" o toca un botón.`;
+      const { confirmationId, resumen } = await crearConfirmacionPendiente(env, convId, "cancelar", args, pregunta);
+      return { ok: true as const, confirmationId, resumen };
+    },
+  });
+}
+
+export function solicitarConfirmacionMoverTool(env: Env, getConversationId: () => string | null) {
+  return tool({
+    description:
+      "Prepara MOVER el día/hora de una visita ya agendada y pide confirmación al cliente (con botones si el canal " +
+      "los soporta) — NUNCA llames moverVisitaPropiedad directo, esta tool la reemplaza. Necesitas los datos " +
+      "EXACTOS de la cita original (fecha, hora, propiedad); si no los tienes, llama primero listarVisitasPropiedad. " +
+      "Las 4 fechas/horas SIEMPRE en palabras textuales del cliente, nunca las conviertas tú a AAAA-MM-DD. Tu " +
+      "respuesta de este turno debe ser EXACTAMENTE el campo `resumen` del resultado.",
+    inputSchema: z.object({
+      propiedad: z.string().describe("Propiedad de la cita a mover"),
+      fechaActual: z.string().describe('Fecha ACTUAL de la cita, tal como la dijo el cliente, ej. "el viernes 28 de agosto"'),
+      horaActual: z.string().describe("Hora ACTUAL de la cita"),
+      fechaNueva: z.string().describe('Fecha NUEVA deseada, tal como la dijo el cliente, ej. "el lunes"'),
+      horaNueva: z.string().describe("Hora NUEVA deseada"),
+    }),
+    execute: async ({ propiedad, fechaActual, horaActual, fechaNueva, horaNueva }) => {
+      const convId = getConversationId();
+      if (!convId) return SIN_CONVERSACION;
+
+      const actual = resolveNaturalDate(env, fechaActual);
+      const horaActual24 = actual.ok ? aHora24(horaActual) : null;
+      if (!actual.ok || !horaActual24) {
+        return {
+          ok: false as const,
+          error: "no_encontrada" as const,
+          message: "No entendí la fecha u hora ACTUAL de la cita. Pídele al cliente que confirme de nuevo fecha, hora y propiedad.",
+        };
+      }
+      const nueva = resolveNaturalDate(env, fechaNueva);
+      const horaNueva24 = nueva.ok ? aHora24(horaNueva) : null;
+      if (!nueva.ok || !horaNueva24) {
+        return {
+          ok: false as const,
+          error: "fecha_no_entendida" as const,
+          message: "No entendí la fecha u hora NUEVA. Pídele al cliente un día y hora concretos.",
+        };
+      }
+      if (!dentroDeHorario(nueva.iso, horaNueva24)) {
+        return {
+          ok: false as const,
+          error: "horario_fuera_rango" as const,
+          message: "Esa hora nueva está fuera del horario de atención (L-V 9-14 y 17-20, Sáb 10-14). Pide otro horario.",
+        };
+      }
+
+      const db = new Db(env.DB);
+      const repo = new PropertyVisitsRepo(db);
+      const encontrada = await buscarVisitaObjetivo(repo, convId, { propiedad, fechaIso: actual.iso, hora: horaActual24 });
+      if ("error" in encontrada) {
+        return {
+          ok: false as const,
+          error: encontrada.error,
+          message:
+            encontrada.error === "ambiguo"
+              ? "Hay más de una cita que coincide. Pregúntale al cliente cuál es exactamente antes de mover ninguna."
+              : "No encuentro esa cita con los datos que me dan. Pídele al cliente que confirme de nuevo fecha, hora y propiedad.",
+        };
+      }
+      const visita = encontrada.visita;
+      const tz = botTimezone(env);
+      const calendarId = vendorCalendarId(env, visita.vendedor);
+      if (calendarId) {
+        const nuevoStart = `${nueva.iso}T${horaNueva24}:00`;
+        const nuevoEnd = `${nueva.iso}T${addMinutes(horaNueva24, DURACION_VISITA_MIN)}:00`;
+        const estado = await isVendorBusy(env, calendarId, nuevoStart, nuevoEnd, tz);
+        if (estado.ok && estado.busy) {
+          return {
+            ok: false as const,
+            error: "vendedor_no_disponible" as const,
+            message: `${visita.vendedor} ya tiene otra cita en ese horario nuevo. Ofrece al cliente otro vendedor o buscar otro horario con ${visita.vendedor}.`,
+          };
+        }
+      }
+
+      const args: EjecutarMoverVisitaArgs = {
+        propiedad: visita.propiedad,
+        fechaActual: visita.fecha_texto,
+        horaActual: visita.hora,
+        fechaNueva: nueva.display,
+        horaNueva: horaNueva24,
+      };
+      const pregunta = `¿Confirmas que quieres mover tu visita a ${visita.propiedad} (actualmente el ${visita.fecha_texto} a las ${visita.hora} con ${visita.vendedor}) al ${nueva.display} a las ${horaNueva24}? Responde "sí" o toca un botón.`;
+      const { confirmationId, resumen } = await crearConfirmacionPendiente(env, convId, "mover", args, pregunta);
+      return { ok: true as const, confirmationId, resumen };
+    },
+  });
+}
+
+export function solicitarConfirmacionCambiarVendedorTool(env: Env, getConversationId: () => string | null) {
+  return tool({
+    description:
+      "Prepara CAMBIAR el asesor/vendedor de una visita ya agendada (mismo día/hora) y pide confirmación al cliente " +
+      "— NUNCA llames cambiarVendedorVisitaPropiedad directo, esta tool la reemplaza. Necesitas los datos EXACTOS " +
+      "de la cita (fecha, hora, propiedad); si no los tienes, llama primero listarVisitasPropiedad. Tu respuesta de " +
+      "este turno debe ser EXACTAMENTE el campo `resumen` del resultado.",
+    inputSchema: z.object({
+      propiedad: z.string().describe("Propiedad de la cita"),
+      fecha: z.string().describe('Fecha ACTUAL de la cita, tal como la dijo el cliente, ej. "el miércoles 9 de septiembre"'),
+      hora: z.string().describe("Hora ACTUAL de la cita"),
+      nuevoVendedor: z.string().describe(`Vendedor nuevo (${VENDEDORES.join(", ")})`),
+    }),
+    execute: async ({ propiedad, fecha, hora, nuevoVendedor }) => {
+      const convId = getConversationId();
+      if (!convId) return SIN_CONVERSACION;
+
+      const resuelta = resolveNaturalDate(env, fecha);
+      const hora24 = resuelta.ok ? aHora24(hora) : null;
+      if (!resuelta.ok || !hora24) {
+        return {
+          ok: false as const,
+          error: "no_encontrada" as const,
+          message: "No entendí la fecha u hora de la cita. Pídele al cliente que confirme de nuevo fecha, hora y propiedad.",
+        };
+      }
+      const match = VENDEDORES.find((v) => v.toLowerCase() === nuevoVendedor.trim().toLowerCase());
+      if (!match) {
+        return {
+          ok: false as const,
+          error: "vendedor_invalido" as const,
+          message: `Vendedor no reconocido. Los vendedores son: ${VENDEDORES.join(", ")}.`,
+        };
+      }
+
+      const db = new Db(env.DB);
+      const repo = new PropertyVisitsRepo(db);
+      const encontrada = await buscarVisitaObjetivo(repo, convId, { propiedad, fechaIso: resuelta.iso, hora: hora24 });
+      if ("error" in encontrada) {
+        return {
+          ok: false as const,
+          error: encontrada.error,
+          message:
+            encontrada.error === "ambiguo"
+              ? "Hay más de una cita que coincide. Pregúntale al cliente cuál es exactamente."
+              : "No encuentro esa cita con los datos que me dan. Pídele al cliente que confirme fecha, hora y propiedad.",
+        };
+      }
+      const visita = encontrada.visita;
+      if (match === visita.vendedor) {
+        return { ok: false as const, error: "mismo_vendedor" as const, message: `Esa visita ya está asignada a ${match}.` };
+      }
+
+      const tz = botTimezone(env);
+      const nuevoCalendarId = vendorCalendarId(env, match);
+      if (calendarConfigured(env) && nuevoCalendarId) {
+        const start = `${visita.fecha_iso}T${visita.hora}:00`;
+        const end = `${visita.fecha_iso}T${addMinutes(visita.hora, DURACION_VISITA_MIN)}:00`;
+        const estado = await isVendorBusy(env, nuevoCalendarId, start, end, tz);
+        if (estado.ok && estado.busy) {
+          return {
+            ok: false as const,
+            error: "vendedor_no_disponible" as const,
+            message: `${match} ya tiene otra cita en ese horario. Ofrece al cliente otro asesor o mover la cita a otro horario.`,
+          };
+        }
+      }
+
+      const args: EjecutarCambiarVendedorVisitaArgs = { propiedad: visita.propiedad, fecha: visita.fecha_texto, hora: visita.hora, nuevoVendedor: match };
+      const pregunta = `¿Confirmas que quieres cambiar el asesor de tu visita a ${visita.propiedad} el ${visita.fecha_texto} a las ${visita.hora}, de ${visita.vendedor} a ${match}? Responde "sí" o toca un botón.`;
+      const { confirmationId, resumen } = await crearConfirmacionPendiente(env, convId, "cambiarVendedor", args, pregunta);
+      return { ok: true as const, confirmationId, resumen };
+    },
+  });
+}
+
+export function confirmarAccionPendienteTool(env: Env, getConversationId: () => string | null) {
+  return tool({
+    description:
+      "Ejecuta o descarta una acción de citas (cancelar/mover/cambiar asesor) que ya se le pidió confirmar al " +
+      "cliente con solicitarConfirmacionCancelar/Mover/CambiarVendedor. Llámala SOLO cuando el cliente responda en " +
+      "TEXTO ('sí'/'no') — si tocó un botón, la acción ya se ejecutó sola, NO la llames de nuevo. Usa el " +
+      "confirmationId exacto que devolvió la tool de solicitarConfirmacion* en este mismo bloque de la conversación.",
+    inputSchema: z.object({
+      confirmationId: z.string().describe("El confirmationId devuelto por solicitarConfirmacionCancelar/Mover/CambiarVendedor"),
+      confirma: z.boolean().describe("true si el cliente dijo que sí, false si dijo que no"),
+    }),
+    execute: async ({ confirmationId, confirma }) => {
+      const convId = getConversationId();
+      const db = new Db(env.DB);
+      const repo = new PendingVisitConfirmationsRepo(db);
+      const pending = await repo.get(confirmationId);
+      if (!pending || pending.conversation_id !== convId) {
+        return {
+          ok: false as const,
+          error: "no_encontrada" as const,
+          message: "No encuentro esa confirmación pendiente. Vuelve a pedir la acción desde el principio.",
+        };
+      }
+      if (!confirma) {
+        await repo.resolve(confirmationId, "rechazada");
+        return { ok: true as const, cancelado: true as const };
+      }
+      const resuelto = await repo.resolve(confirmationId, "confirmada");
+      if (!resuelto) {
+        return {
+          ok: false as const,
+          error: "ya_resuelta" as const,
+          message: "Esa confirmación ya se resolvió antes (seguramente por botón) — no la repitas ni afirmes nada nuevo.",
+        };
+      }
+      const args = JSON.parse(pending.args);
+      if (pending.action === "cancelar") return ejecutarCancelarVisita(env, getConversationId, args as EjecutarCancelarVisitaArgs);
+      if (pending.action === "mover") return ejecutarMoverVisita(env, getConversationId, args as EjecutarMoverVisitaArgs);
+      return ejecutarCambiarVendedorVisita(env, getConversationId, args as EjecutarCambiarVendedorVisitaArgs);
     },
   });
 }
