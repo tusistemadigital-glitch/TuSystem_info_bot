@@ -285,9 +285,24 @@ export type GuardAction =
   | "skipped-free" // tier free: el verificador es Pro-only
   | "skipped-mode-off" // BLINDAJE_MODE=off — el dueño lo apagó por env
   | "skipped-no-claims" // la respuesta no afirma datos (o, en modo permisivo, no niega nada)
+  | "skipped-tool-backed" // negaciones: afirma una acción, pero YA hay una tool con éxito real este turno — no hace falta preguntarle al verificador
   | "sent-original" // verificada y respaldada — sale tal cual
   | "replaced" // sin respaldo — sale el "déjame confirmarlo" + ticket
   | "fail-open"; // el verificador falló/timeout — sale la original intacta
+
+/**
+ * ¿Algún resultado de tool de este turno reporta éxito explícito (`"ok":true`)?
+ * Heurística barata y agnóstica de nicho — evita gastar el veredicto del
+ * verificador (un modelo rápido/barato, no perfecto) justo en el caso que
+ * más importa acertar: una confirmación de acción (agendar/mover/cancelar/
+ * reasignar) cuando SÍ hubo una tool exitosa este turno. Visto en vivo: sin
+ * esto, el verificador bloqueaba un email de confirmación que SÍ había
+ * llegado y un listado de citas que SÍ venía de listarVisitasPropiedad —
+ * falsos positivos del juez, no del bot.
+ */
+function hasSuccessfulToolResult(toolResults?: { tool: string; output: string }[]): boolean {
+  return Boolean(toolResults?.some((t) => /"ok"\s*:\s*true/.test(t.output)));
+}
 
 export interface GuardOptions {
   replyText: string;
@@ -334,8 +349,12 @@ export async function guardReply(env: Env, opts: GuardOptions): Promise<GuardRes
   let negationsOnly = false;
   if (mode === "negaciones") {
     const isActionClaim = ACTION_CLAIM_PATTERN.test(original);
-    if (!isActionClaim && !DENIAL_PATTERN.test(original)) {
+    const isDenial = DENIAL_PATTERN.test(original);
+    if (!isActionClaim && !isDenial) {
       return { finalText: original, action: "skipped-no-claims" };
+    }
+    if (isActionClaim && !isDenial && hasSuccessfulToolResult(opts.toolResults)) {
+      return { finalText: original, action: "skipped-tool-backed" };
     }
     negationsOnly = !isActionClaim;
   } else if (!shouldVerify(original, opts.turnUsedKb)) {

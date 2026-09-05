@@ -375,8 +375,7 @@ describe("guardReply — veredictos", () => {
     expect(prompt).toContain("ACCIONES EN LA AGENDA");
   });
 
-  it("BLINDAJE_MODE=negaciones → una confirmación de acción de agenda respaldada por la tool sale tal cual", async () => {
-    generateTextMock.mockResolvedValue(verdict(true));
+  it("BLINDAJE_MODE=negaciones → una confirmación de acción de agenda respaldada por una tool con éxito NI SIQUIERA llama al verificador (evita falsos positivos del juez)", async () => {
     const negEnv = { ...env, BLINDAJE_MODE: "negaciones" } as Env;
 
     const original = "Tu visita quedó movida ✅ para el jueves 10 de septiembre a las 17:00 en ID 3491.";
@@ -388,7 +387,49 @@ describe("guardReply — veredictos", () => {
       conversationId: convId,
     });
 
-    expect(r.action).toBe("sent-original");
+    expect(r.action).toBe("skipped-tool-backed");
     expect(r.finalText).toBe(original);
+    expect(generateTextMock).not.toHaveBeenCalled();
+  });
+
+  it("BLINDAJE_MODE=negaciones → reproduce el falso positivo real: email de confirmación SÍ enviado no se bloquea", async () => {
+    const negEnv = { ...env, BLINDAJE_MODE: "negaciones" } as Env;
+
+    // Visto en vivo: el bot bloqueaba "Confirmación enviada a X" aunque
+    // agendarVisitaPropiedad SÍ había devuelto emailCliente:"enviado" y el
+    // cliente confirmó que el correo llegó de verdad.
+    const original = "Tu cita ha sido agendada ✅. Confirmación enviada a smlmanza@gmail.com. ¿Necesitas algo más?";
+    const r = await guardReply(negEnv, {
+      replyText: original,
+      turnUsedKb: false,
+      kbPassages: [],
+      toolResults: [
+        {
+          tool: "agendarVisitaPropiedad",
+          output: JSON.stringify({ ok: true, propiedad: "ID 3495", fecha: "el jueves 10 de septiembre", hora: "11:00", vendedor: "Diego", emailCliente: "enviado" }),
+        },
+      ],
+      conversationId: convId,
+    });
+
+    expect(r.action).toBe("skipped-tool-backed");
+    expect(r.finalText).toBe(original);
+    expect(generateTextMock).not.toHaveBeenCalled();
+  });
+
+  it("BLINDAJE_MODE=negaciones → SIN ninguna tool exitosa este turno, la confirmación de acción SÍ se sigue verificando (y bloqueando si no hay respaldo)", async () => {
+    generateTextMock.mockResolvedValue(verdict(false, "cita movida"));
+    const negEnv = { ...env, BLINDAJE_MODE: "negaciones" } as Env;
+
+    const r = await guardReply(negEnv, {
+      replyText: "Tu visita quedó movida ✅ para el jueves 10 de septiembre a las 17:00.",
+      turnUsedKb: false,
+      kbPassages: [],
+      toolResults: [], // ninguna tool corrió este turno — el bug real que se quiere atrapar
+      conversationId: convId,
+    });
+
+    expect(r.action).toBe("replaced");
+    expect(generateTextMock).toHaveBeenCalledTimes(1);
   });
 });
