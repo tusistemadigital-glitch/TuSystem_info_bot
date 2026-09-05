@@ -3,6 +3,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import { ConversationsRepo } from "../../src/db/conversations";
+import { __resetComposioCacheForTests } from "../../src/integrations/composio";
 import {
   agendarVisitaPropiedadTool,
   moverVisitaPropiedadTool,
@@ -229,5 +230,48 @@ describe("agendarVisitaPropiedadTool con Google Calendar conectado", () => {
     expect(result.ok).toBe(true);
     expect(result.enCalendario).toBe(true);
     expect(eventCreated).toBe(true);
+  });
+});
+
+describe("confirmación por email vía Composio Gmail (sin Resend/Cloudflare Email)", () => {
+  const realFetch = global.fetch;
+  beforeEach(() => __resetComposioCacheForTests());
+  afterEach(() => {
+    global.fetch = realFetch;
+  });
+
+  it("emailCliente:'enviado' cuando Gmail está conectado en Composio, aunque no haya mailer directo", async () => {
+    env.COMPOSIO_API_KEY = "ck_test";
+    let sentTo = "";
+    let sentSubject = "";
+    global.fetch = vi.fn(async (url: any, init: any) => {
+      const u = String(url);
+      if (u.includes("/connected_accounts")) {
+        return new Response(JSON.stringify({ items: [{ id: "ca_gmail_1", user_id: "me", toolkit: { slug: "gmail" } }] }), { status: 200 });
+      }
+      if (u.includes("/tools?")) {
+        return new Response(
+          JSON.stringify({ items: [{ slug: "GMAIL_SEND_EMAIL", human_description: "Send an email", toolkit: { slug: "gmail" } }] }),
+          { status: 200 },
+        );
+      }
+      if (u.includes("/tools/execute/GMAIL_SEND_EMAIL")) {
+        const body = JSON.parse(init.body);
+        sentTo = body.arguments.recipient_email;
+        sentSubject = body.arguments.subject;
+        return new Response(JSON.stringify({ data: { id: "msg_1" }, successful: true }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch to ${u}`);
+    }) as any;
+
+    const tool = agendarVisitaPropiedadTool(env, () => convId);
+    const result = (await tool.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, nombre: "Ana", telefono: "600", clienteEmail: "ana@example.com" },
+      {} as any,
+    )) as any;
+
+    expect(result.emailCliente).toBe("enviado");
+    expect(sentTo).toBe("ana@example.com");
+    expect(sentSubject).toContain("ID 101");
   });
 });
