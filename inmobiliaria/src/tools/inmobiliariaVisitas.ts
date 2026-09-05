@@ -453,6 +453,7 @@ export function cancelarVisitaPropiedadTool(env: Env, getConversationId: () => s
       hora: z.string().optional().describe("Hora de la cita, si la dio"),
     }),
     execute: async ({ propiedad, fecha, hora }) => {
+      console.log(`[inmobiliaria:cancelar] pedido conv=${getConversationId() ?? "?"} propiedad="${propiedad ?? "?"}" fecha="${fecha ?? "?"}" hora="${hora ?? "?"}"`);
       const fechaIso = fecha ? (() => { const r = resolveNaturalDate(env, fecha); return r.ok ? r.iso : undefined; })() : undefined;
       const horaResuelta = hora ? aHora24(hora) ?? undefined : undefined;
 
@@ -460,6 +461,7 @@ export function cancelarVisitaPropiedadTool(env: Env, getConversationId: () => s
       const repo = new PropertyVisitsRepo(db);
       const encontrada = await buscarVisitaObjetivo(repo, getConversationId(), { propiedad, fechaIso, hora: horaResuelta });
       if ("error" in encontrada) {
+        console.log(`[inmobiliaria:cancelar] ${encontrada.error} — no se canceló nada`);
         return {
           ok: false as const,
           error: encontrada.error,
@@ -486,9 +488,15 @@ export function cancelarVisitaPropiedadTool(env: Env, getConversationId: () => s
             message: "No pude cancelar el evento en el calendario. NO confirmes la cancelación todavía — avisa que lo estás revisando y usa handoffHuman si insiste.",
           };
         }
+        console.log(`[inmobiliaria:cancelar] evento ${visita.calendar_event_id} borrado de ${calendarId} (o ya no existía)`);
+      } else {
+        console.log(
+          `[inmobiliaria:cancelar] visita ${visita.id} sin evento de calendario que borrar (calendar_event_id=${visita.calendar_event_id ?? "null"} calendarId=${calendarId ?? "null"})`,
+        );
       }
 
       await repo.markCancelled(visita.id);
+      console.log(`[inmobiliaria:cancelar] OK visita ${visita.id} cancelada (propiedad="${visita.propiedad}" vendedor=${visita.vendedor} era ${visita.fecha_texto} ${visita.hora})`);
       await avisarEquipo(env, `Visita cancelada.\nPropiedad: ${visita.propiedad}\nCliente: ${visita.nombre}\nEra: ${visita.fecha_texto} ${visita.hora}`);
 
       return { ok: true as const, propiedad: visita.propiedad, fecha: visita.fecha_texto, hora: visita.hora };
