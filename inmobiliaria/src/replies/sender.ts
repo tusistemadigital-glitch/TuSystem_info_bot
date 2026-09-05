@@ -124,6 +124,40 @@ export function extraeMediaIds(chunks: string[]): { chunks: string[]; medias: Me
   return { chunks: limpios, medias };
 }
 
+// ── Fotos directas por URL (ej. inventario de propiedades en Google Sheets) ──
+// A diferencia de [[media: img_x…]] (catálogo pre-subido al panel), estas
+// URLs vienen DIRECTO de la fuente de datos del negocio (una hoja de Sheets,
+// consultada por una tool este mismo turno) — no hay nada que "registrar" de
+// antemano, así que no pasan por SettingsRepo ni por ningún id: la URL misma
+// ES el dato. Existe porque sin esto, el modelo solo podía poner el link como
+// texto/markdown — el cliente lo veía como un enlace clicable, no como una
+// foto adjunta.
+
+// Con caption opcional: [[foto: https://ejemplo.com/casa.jpg | Fachada]]
+const FOTO_MARCADOR_RE = /\[\[\s*foto\s*:\s*(https:\/\/[^\s\]|]{1,600})\s*(?:\|([^\]]{1,300}?))?\s*\]\]/gi;
+const MAX_FOTOS_POR_RESPUESTA = 3;
+
+/** Extrae las fotos por URL directa (dedupeadas, máx 3, con caption opcional)
+ *  y limpia los marcadores del texto. Sin resolución async: la URL ya es el dato. */
+export function extraeFotosDirectas(chunks: string[]): { chunks: string[]; fotos: ReplyMedia[] } {
+  const fotos: ReplyMedia[] = [];
+  const limpios = chunks
+    .map((c) => {
+      let out = c;
+      for (const m of c.matchAll(FOTO_MARCADOR_RE)) {
+        const url = m[1].trim();
+        const caption = (m[2] ?? "").trim().slice(0, 300) || undefined;
+        if (!fotos.some((f) => f.url === url) && fotos.length < MAX_FOTOS_POR_RESPUESTA) {
+          fotos.push({ kind: "image", url, ...(caption ? { caption } : {}) });
+        }
+        out = out.replace(m[0], "");
+      }
+      return out.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+    })
+    .filter((c) => c.length > 0);
+  return { chunks: limpios, fotos };
+}
+
 /**
  * Ids → ReplyMedia con URL pública, validando contra los assets REALES (un id
  * inventado por el modelo se descarta en silencio). Nunca lanza: sin base URL o
@@ -195,21 +229,25 @@ export async function sendChunkedReply(
   // texto (canal sin soporte). Se resuelve contra los assets reales: un id
   // inventado se descarta y el texto sale normal.
   const extMedia = extraeMediaIds(extConfirm.chunks);
-  let finales = extMedia.chunks;
+  // Marcador de foto por URL directa (inventario en vivo, ej. Google Sheets)
+  // — no necesita resolución async, la URL ya es el dato.
+  const extFotos = extraeFotosDirectas(extMedia.chunks);
+  let finales = extFotos.chunks;
   let media: ReplyMedia[] | undefined;
-  if (extMedia.medias.length) {
-    const resueltos = await resolverMedia(extMedia.medias, env);
-    if (resueltos.length) {
-      if (MEDIA_CHANNELS.has(channel)) {
-        media = resueltos;
-      } else {
-        // Fallback: el link (con su caption si trae) pega al final del último
-        // chunk — o solo, si no hay texto.
-        const links = resueltos.map((m) => (m.caption ? `${m.caption}\n${m.url}` : m.url)).join("\n\n");
-        finales = finales.length
-          ? [...finales.slice(0, -1), `${finales[finales.length - 1]}\n\n${links}`]
-          : [links];
-      }
+  const resueltos = [
+    ...(extMedia.medias.length ? await resolverMedia(extMedia.medias, env) : []),
+    ...extFotos.fotos,
+  ].slice(0, MAX_MEDIA_POR_RESPUESTA);
+  if (resueltos.length) {
+    if (MEDIA_CHANNELS.has(channel)) {
+      media = resueltos;
+    } else {
+      // Fallback: el link (con su caption si trae) pega al final del último
+      // chunk — o solo, si no hay texto.
+      const links = resueltos.map((m) => (m.caption ? `${m.caption}\n${m.url}` : m.url)).join("\n\n");
+      finales = finales.length
+        ? [...finales.slice(0, -1), `${finales[finales.length - 1]}\n\n${links}`]
+        : [links];
     }
   }
   let buttons = ext.buttons;

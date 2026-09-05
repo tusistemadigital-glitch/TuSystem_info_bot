@@ -4,6 +4,7 @@ import {
   pickAdapter,
   chunkDelayMs,
   extraeConfirmarVisita,
+  extraeFotosDirectas,
 } from "../../src/replies/sender";
 import type { ChannelAdapter } from "../../src/channels/shared";
 
@@ -100,6 +101,65 @@ describe("sendChunkedReply con [[confirmar_visita: …]]", () => {
     const arg = (sendReply.mock.calls[0] as any[])[0];
     expect(arg.chunks).toEqual(["¿Confirmas que quieres cancelar tu visita?"]);
     expect(arg.inlineButtons).toBeUndefined();
+  });
+});
+
+describe("extraeFotosDirectas", () => {
+  it("extrae una URL directa con caption y limpia el marcador del texto", () => {
+    const r = extraeFotosDirectas(["ID 3495, piso en alquiler.\n\n[[foto: https://ejemplo.com/casa.jpg | Fachada]]"]);
+    expect(r.fotos).toEqual([{ kind: "image", url: "https://ejemplo.com/casa.jpg", caption: "Fachada" }]);
+    expect(r.chunks).toEqual(["ID 3495, piso en alquiler."]);
+  });
+
+  it("sin caption, funciona igual", () => {
+    const r = extraeFotosDirectas(["[[foto: https://ejemplo.com/casa.jpg]]"]);
+    expect(r.fotos).toEqual([{ kind: "image", url: "https://ejemplo.com/casa.jpg" }]);
+  });
+
+  it("dedupea URLs repetidas y respeta el máximo de 3", () => {
+    const texto = [
+      "[[foto: https://a.com/1.jpg]]",
+      "[[foto: https://a.com/1.jpg]]", // repetida
+      "[[foto: https://a.com/2.jpg]]",
+      "[[foto: https://a.com/3.jpg]]",
+      "[[foto: https://a.com/4.jpg]]", // se descarta, ya hay 3
+    ].join(" ");
+    const r = extraeFotosDirectas([texto]);
+    expect(r.fotos).toHaveLength(3);
+    expect(r.fotos.map((f) => f.url)).toEqual(["https://a.com/1.jpg", "https://a.com/2.jpg", "https://a.com/3.jpg"]);
+  });
+
+  it("sin marcador, deja los chunks intactos", () => {
+    const r = extraeFotosDirectas(["hola, ¿en qué te ayudo?"]);
+    expect(r.fotos).toEqual([]);
+    expect(r.chunks).toEqual(["hola, ¿en qué te ayudo?"]);
+  });
+});
+
+describe("sendChunkedReply con [[foto: url]]", () => {
+  it("en un canal con soporte de media, manda la foto como OutgoingReply.media (no como link en texto)", async () => {
+    const sendReply = vi.fn(async () => {});
+    const adapter = { sendReply, parseIncoming: vi.fn() } as unknown as ChannelAdapter;
+    await sendChunkedReply(
+      adapter,
+      "telegram",
+      "u1",
+      ["ID 3495, piso en alquiler.\n\n[[foto: https://ejemplo.com/casa.jpg | Fachada]]"],
+      {} as any,
+    );
+    const arg = (sendReply.mock.calls[0] as any[])[0];
+    expect(arg.chunks).toEqual(["ID 3495, piso en alquiler."]);
+    expect(arg.media).toEqual([{ kind: "image", url: "https://ejemplo.com/casa.jpg", caption: "Fachada" }]);
+  });
+
+  it("en un canal SIN soporte de media, cae a un link en texto (nada se pierde)", async () => {
+    const sendReply = vi.fn(async () => {});
+    const adapter = { sendReply, parseIncoming: vi.fn() } as unknown as ChannelAdapter;
+    await sendChunkedReply(adapter, "web", "u1", ["Mira la foto:\n\n[[foto: https://ejemplo.com/casa.jpg | Fachada]]"], {} as any);
+    const arg = (sendReply.mock.calls[0] as any[])[0];
+    expect(arg.media).toBeUndefined();
+    expect(arg.chunks[0]).toContain("https://ejemplo.com/casa.jpg");
+    expect(arg.chunks[0]).toContain("Fachada");
   });
 });
 
