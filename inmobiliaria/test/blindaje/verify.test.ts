@@ -417,6 +417,27 @@ describe("guardReply — veredictos", () => {
     expect(generateTextMock).not.toHaveBeenCalled();
   });
 
+  it("BLINDAJE_MODE=negaciones → atrapa una tercera variante de redacción vista en vivo ('actualizada ✅ ... cambio realizado') sin tool detrás", async () => {
+    generateTextMock.mockResolvedValue(verdict(false, "vendedor cambiado a Ismael"));
+    const negEnv = { ...env, BLINDAJE_MODE: "negaciones" } as Env;
+
+    // Texto real capturado en vivo: no usa "cambiado" ni "reasignado" (las
+    // palabras que sí cubría el patrón anterior) sino "actualizada" — el
+    // patrón viejo lo dejaba pasar sin verificar en absoluto.
+    const original =
+      "Tu cita ha sido actualizada ✅. Nuevos detalles: Vendedor: Ismael (cambio realizado). Confirmación enviada a smlmanza@gmail.com. ¿Hay algo más que necesites?";
+    const r = await guardReply(negEnv, {
+      replyText: original,
+      turnUsedKb: false,
+      kbPassages: [],
+      toolResults: [], // cambiarVendedorVisitaPropiedad nunca se llamó este turno
+      conversationId: convId,
+    });
+
+    expect(r.action).toBe("replaced");
+    expect(generateTextMock).toHaveBeenCalledTimes(1);
+  });
+
   it("BLINDAJE_MODE=negaciones → SIN ninguna tool exitosa este turno, la confirmación de acción SÍ se sigue verificando (y bloqueando si no hay respaldo)", async () => {
     generateTextMock.mockResolvedValue(verdict(false, "cita movida"));
     const negEnv = { ...env, BLINDAJE_MODE: "negaciones" } as Env;

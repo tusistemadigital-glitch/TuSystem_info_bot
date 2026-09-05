@@ -54,7 +54,7 @@ export const DENIAL_PATTERN =
 // Deliberadamente amplio (participios en pasado) — un falso positivo solo
 // cuesta una verificación de más.
 export const ACTION_CLAIM_PATTERN =
-  /\b(cancelad[oa]s?|cancel[eé]|movid[oa]s?|reagendad[oa]s?|reprogramad[oa]s?|agendad[oa]s?|reservad[oa]s?|reasignad[oa]s?|cambiad[oa]s?)\b/i;
+  /\b(cancelad[oa]s?|cancel[eé]|movid[oa]s?|reagendad[oa]s?|reprogramad[oa]s?|agendad[oa]s?|reservad[oa]s?|reasignad[oa]s?|cambiad[oa]s?|actualizad[oa]s?|registrad[oa]s?)\b|✅/i;
 
 /**
  * ¿Amerita verificación? Sí cuando la respuesta:
@@ -301,7 +301,9 @@ export type GuardAction =
  * falsos positivos del juez, no del bot.
  */
 function hasSuccessfulToolResult(toolResults?: { tool: string; output: string }[]): boolean {
-  return Boolean(toolResults?.some((t) => /"ok"\s*:\s*true/.test(t.output)));
+  // "ok":true cubre las tools de citas; "...Id":"..." cubre las de registro simple
+  // (captureLead, calificarComprador, registrarVisita…) que no traen campo "ok".
+  return Boolean(toolResults?.some((t) => /"ok"\s*:\s*true|"[a-zA-Z]+Id"\s*:\s*"/.test(t.output)));
 }
 
 export interface GuardOptions {
