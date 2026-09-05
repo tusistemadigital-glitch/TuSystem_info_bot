@@ -69,7 +69,10 @@ function botonesATexto(buttons: ReplyButton[]): string {
 // simplemente se limpia: el texto ya trae la pregunta en palabras, el
 // cliente responde "sí"/"no" y el modelo llama confirmarAccionPendiente.
 
-const CONFIRM_VISITA_RE = /\[\[\s*confirmar_visita\s*:\s*([a-zA-Z0-9-]{4,64})\s*\]\]/gi;
+// Mismo charset amplio que confirmMarkerGuard.ts (el id real es un UUID, pero
+// esto no debe fallar en extraer/limpiar el marcador aunque el contenido no
+// tenga esa forma — la validez del id la decide ese guard, no este parser).
+const CONFIRM_VISITA_RE = /\[\[\s*confirmar_visita\s*:\s*([^\]\r\n]{1,500}?)\s*\]\]/gi;
 
 export function extraeConfirmarVisita(chunks: string[]): { chunks: string[]; confirmationId?: string } {
   let confirmationId: string | undefined;

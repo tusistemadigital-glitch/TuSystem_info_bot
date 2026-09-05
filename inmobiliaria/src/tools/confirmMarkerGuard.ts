@@ -15,7 +15,13 @@ import { PendingVisitConfirmationsRepo } from "../db/pendingVisitConfirmations";
 // comprobación binaria de que el id existe de verdad, así que corre SIEMPRE,
 // sin importar BLINDAJE_MODE ni el tier del bot.
 
-const CONFIRM_MARKER_RE = /\[\[\s*confirmar_visita\s*:\s*([a-zA-Z0-9_-]{1,64})\s*\]\]/i;
+// El id real es un UUID (crypto.randomUUID()), pero esto captura CUALQUIER
+// cosa entre los dos puntos y el cierre — visto en vivo: el modelo fabricó un
+// "id" en base64 (con '/' y '=', fuera de un charset ajustado a UUIDs) para
+// simular algo real. No hay que adivinar qué formato inventará la próxima
+// vez: cualquier contenido no vacío que no sea un id real de verdad se
+// bloquea igual.
+const CONFIRM_MARKER_RE = /\[\[\s*confirmar_visita\s*:\s*([^\]\r\n]{1,500}?)\s*\]\]/i;
 
 const REPLY_FABRICADA =
   "Dame un momento — antes de pedirte que confirmes algo quiero revisar bien los datos de tu cita. Vuelve a decirme qué quieres hacer.";

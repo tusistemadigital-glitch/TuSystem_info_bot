@@ -42,6 +42,18 @@ describe("guardVisitConfirmationMarker", () => {
     expect(r.finalText).not.toContain("conf_3");
   });
 
+  it("con un id fabricado en base64 (con '/' y '=', fuera del charset de un UUID) — TAMBIÉN bloquea", async () => {
+    // Visto en vivo: el modelo, en vez de llamar la tool real, inventó un
+    // "id" codificando en base64 un JSON con los datos de la cita — con
+    // caracteres ('/', '=') que un regex ajustado solo a UUIDs no capturaba,
+    // dejando pasar el marcador crudo sin que este guard lo viera siquiera.
+    const idFabricado =
+      "eyJhY3Rpb24iOiAiY2FuY2VsYXIiLCAicHJvcGllZGFkIjogIklEIDM0OTUiLCAiY29uZmlybWF0aW9uSWQiOiAiY2MvY2VsXzM0OTVfMTAwMCJ9";
+    const r = await guardVisitConfirmationMarker(env, convId, `x\n\n[[confirmar_visita: ${idFabricado}]]`);
+    expect(r.blocked).toBe(true);
+    expect(r.finalText).not.toContain("confirmar_visita");
+  });
+
   it("con un id que existe pero ya fue resuelto — bloquea (evita reabrir una confirmación muerta)", async () => {
     const repo = new PendingVisitConfirmationsRepo(new Db(env.DB));
     const id = await repo.create({ conversationId: convId, action: "mover", args: {}, resumen: "x" });
