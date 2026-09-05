@@ -45,6 +45,17 @@ const CLAIM_PATTERN = /[0-9$€£%]|\bpesos?\b|\bd[oó]lares?\b|\bmxn\b|\busd\b|
 export const DENIAL_PATTERN =
   /\bno\s+(?:lo\s+|la\s+|los\s+|las\s+|te\s+|se\s+)?(?:vend|ofrec|manej|trabaj|distribu|fabric|surt|tenemos|contamos|disponemos|hacemos)|no\s+(?:contamos|trabajamos|disponemos)\s+con|we\s+do\s?n[’']?t\s+(?:sell|offer|carry|stock|do|make|handle|have)|n[ãa]o\s+(?:vendemos|temos|oferecemos|trabalhamos|fazemos)/i;
 
+// Huele a CONFIRMACIÓN de una acción de agenda ya realizada (cancelar, mover
+// o reservar una cita). Tan peligrosa como una negación falsa: si no hay tool
+// de este turno que la respalde, el cliente cree que su cita cambió y no es
+// cierto — visto en vivo (el bot confirmó una cancelación dos veces seguidas
+// sin haber llamado nunca a cancelarVisitaPropiedad). El modo `negaciones`
+// solo vigilaba DENIAL_PATTERN; esta afirmación POSITIVA se le colaba entera.
+// Deliberadamente amplio (participios en pasado) — un falso positivo solo
+// cuesta una verificación de más.
+export const ACTION_CLAIM_PATTERN =
+  /\b(cancelad[oa]s?|cancel[eé]|movid[oa]s?|reagendad[oa]s?|reprogramad[oa]s?|agendad[oa]s?|reservad[oa]s?)\b/i;
+
 /**
  * ¿Amerita verificación? Sí cuando la respuesta:
  *  - trae señales de dato duro (precio/moneda/dígitos/porcentajes), O
@@ -316,14 +327,17 @@ export async function guardReply(env: Env, opts: GuardOptions): Promise<GuardRes
   if (mode === "off") return { finalText: original, action: "skipped-mode-off" };
 
   // negaciones: confía en TODO dato positivo (inventario en vivo) y solo vigila
-  // negaciones de existencia — si la respuesta no niega nada, ni se verifica.
+  // negaciones de existencia Y confirmaciones de acciones de agenda (cancelar/
+  // mover/reservar una cita) — estas últimas SIEMPRE en modo completo (nunca
+  // negationsOnly, que las daría por buenas sin mirar las tools del turno).
   // full (default): verificación completa; el prompt ya es lenient con tool/KB.
   let negationsOnly = false;
   if (mode === "negaciones") {
-    if (!DENIAL_PATTERN.test(original)) {
+    const isActionClaim = ACTION_CLAIM_PATTERN.test(original);
+    if (!isActionClaim && !DENIAL_PATTERN.test(original)) {
       return { finalText: original, action: "skipped-no-claims" };
     }
-    negationsOnly = true;
+    negationsOnly = !isActionClaim;
   } else if (!shouldVerify(original, opts.turnUsedKb)) {
     return { finalText: original, action: "skipped-no-claims" };
   }

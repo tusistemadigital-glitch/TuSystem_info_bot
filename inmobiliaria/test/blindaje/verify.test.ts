@@ -351,4 +351,44 @@ describe("guardReply — veredictos", () => {
     const prompt = (generateTextMock.mock.calls[0][0] as { prompt: string }).prompt;
     expect(prompt).toContain("Vigila ÚNICAMENTE las NEGACIONES");
   });
+
+  it("BLINDAJE_MODE=negaciones → SÍ vigila (en modo COMPLETO) una confirmación de acción de agenda", async () => {
+    generateTextMock.mockResolvedValue(verdict(false, "cita cancelada"));
+    const negEnv = { ...env, BLINDAJE_MODE: "negaciones" } as Env;
+
+    // Reproduce el bug real: el bot afirma que canceló sin que ninguna tool
+    // de este turno lo respalde (toolResults vacío).
+    const r = await guardReply(negEnv, {
+      replyText: "Perfecto. Tu cita del lunes 7 de septiembre a las 10:00 en ID 3489 ha sido cancelada ✅.",
+      turnUsedKb: false,
+      kbPassages: [],
+      toolResults: [],
+      conversationId: convId,
+    });
+
+    expect(r.action).toBe("replaced");
+    expect(generateTextMock).toHaveBeenCalledTimes(1);
+    // A diferencia de una negación, esta SÍ debe ir en modo completo (mira
+    // toolResults) — negationsOnly la habría dado por buena sin más.
+    const prompt = (generateTextMock.mock.calls[0][0] as { prompt: string }).prompt;
+    expect(prompt).not.toContain("Vigila ÚNICAMENTE las NEGACIONES");
+    expect(prompt).toContain("ACCIONES EN LA AGENDA");
+  });
+
+  it("BLINDAJE_MODE=negaciones → una confirmación de acción de agenda respaldada por la tool sale tal cual", async () => {
+    generateTextMock.mockResolvedValue(verdict(true));
+    const negEnv = { ...env, BLINDAJE_MODE: "negaciones" } as Env;
+
+    const original = "Tu visita quedó movida ✅ para el jueves 10 de septiembre a las 17:00 en ID 3491.";
+    const r = await guardReply(negEnv, {
+      replyText: original,
+      turnUsedKb: false,
+      kbPassages: [],
+      toolResults: [{ tool: "moverVisitaPropiedad", output: JSON.stringify({ ok: true, fecha: "el jueves 10 de septiembre", hora: "17:00" }) }],
+      conversationId: convId,
+    });
+
+    expect(r.action).toBe("sent-original");
+    expect(r.finalText).toBe(original);
+  });
 });
