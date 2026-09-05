@@ -46,6 +46,17 @@ describe("resolveNaturalDate", () => {
     expect(resolveNaturalDate(env, "01/09/2026", NOW)).toMatchObject({ ok: true, iso: "2026-09-01" });
   });
 
+  it("resuelve día de semana + fecha explícita combinados (ej. confirmando una cita ya dicha)", () => {
+    expect(resolveNaturalDate(env, "el lunes 7 de septiembre", NOW)).toMatchObject({ ok: true, iso: "2026-09-07" });
+    expect(resolveNaturalDate(env, "el próximo lunes 7 de septiembre", NOW)).toMatchObject({ ok: true, iso: "2026-09-07" });
+    expect(resolveNaturalDate(env, "lunes 7 de septiembre de 2026", NOW)).toMatchObject({ ok: true, iso: "2026-09-07" });
+  });
+
+  it("con día de semana + fecha combinados, la fecha explícita manda aunque el día de semana esté mal dicho", () => {
+    // El 7 de septiembre de 2026 es lunes, no martes — la fecha exacta gana.
+    expect(resolveNaturalDate(env, "el martes 7 de septiembre", NOW)).toMatchObject({ ok: true, iso: "2026-09-07" });
+  });
+
   it("no adivina frases que no entiende", () => {
     expect(resolveNaturalDate(env, "la semana que viene", NOW)).toEqual({ ok: false });
     expect(resolveNaturalDate(env, "no sé, cuando puedan", NOW)).toEqual({ ok: false });

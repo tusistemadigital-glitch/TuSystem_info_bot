@@ -124,6 +124,30 @@ export function resolveNaturalDate(env: Env, texto: string, now: Date = new Date
     return { ok: true, iso: toIso(fecha), display: displayFor(fecha, "") };
   }
 
+  // Día de semana + fecha explícita combinados, ej. "el lunes 7 de septiembre"
+  // o "el próximo lunes 7 de septiembre de 2026" (frecuente al confirmar una
+  // cita que ya se dijo antes). La fecha explícita manda; el nombre del día
+  // solo decide el prefijo mostrado, nunca se usa para calcular ni se exige
+  // que coincida — si el cliente se equivocó de día de semana, la fecha exacta
+  // sigue siendo inequívoca.
+  m = t.match(/^(?:el\s+|este\s+)?(proximo\s+|proxima\s+)?([a-z]+)\s+(\d{1,2})\s+de\s+([a-z]+)(?:\s+(?:de|del)\s+(\d{4}))?$/);
+  if (m && diaSemanaIndex(m[2]) !== null) {
+    const dia = Number(m[3]);
+    const mes = mesIndex(m[4]);
+    if (mes !== null && dia >= 1 && dia <= 31) {
+      let anio = m[5] ? Number(m[5]) : hoy.getUTCFullYear();
+      let fecha = fromYMD(anio, mes + 1, dia);
+      if (!Number.isNaN(fecha.getTime())) {
+        if (!m[5] && fecha.getTime() < hoy.getTime()) {
+          anio += 1;
+          fecha = fromYMD(anio, mes + 1, dia);
+        }
+        const prefix = m[1] ? "el próximo " : "el ";
+        return { ok: true, iso: toIso(fecha), display: displayFor(fecha, prefix) };
+      }
+    }
+  }
+
   // Día de la semana, con "el"/"este"/"próximo"/"próxima"/"que viene" opcionales.
   m = t.match(/^(?:el\s+|este\s+)?(proximo|proxima)?\s*([a-z]+?)(?:\s+que\s+viene)?$/);
   if (m) {
