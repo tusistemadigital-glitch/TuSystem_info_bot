@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
 import { isVendorBusy, createCalendarEvent } from "../../src/integrations/googleCalendar";
 
@@ -55,6 +55,23 @@ describe("isVendorBusy", () => {
     const r = await isVendorBusy(env, CALENDAR_ID, "2026-09-09T10:00:00", "2026-09-09T10:30:00", "Europe/Madrid");
     expect(r).toEqual({ ok: true, busy: false });
   });
+
+  it("manda timeMin/timeMax como instantes UTC reales (con offset resuelto), no la hora local pelada", async () => {
+    let sentBody: any = null;
+    global.fetch = vi.fn(async (url: any, init: any) => {
+      if (String(url).includes("/token")) {
+        return new Response(JSON.stringify({ access_token: "fake-token", expires_in: 3600 }), { status: 200 });
+      }
+      sentBody = JSON.parse(init.body);
+      return new Response(JSON.stringify({ calendars: { [CALENDAR_ID]: { busy: [] } } }), { status: 200 });
+    }) as any;
+
+    // 8-sep-2026 18:00 hora de Madrid = horario de verano (UTC+2) -> 16:00Z.
+    await isVendorBusy(env, CALENDAR_ID, "2026-09-08T18:00:00", "2026-09-08T18:30:00", "Europe/Madrid");
+
+    expect(sentBody.timeMin).toBe("2026-09-08T16:00:00.000Z");
+    expect(sentBody.timeMax).toBe("2026-09-08T16:30:00.000Z");
+  });
 });
 
 describe("createCalendarEvent", () => {
@@ -85,5 +102,7 @@ describe("createCalendarEvent", () => {
     expect(r).toEqual({ ok: true, eventId: "evt_123", htmlLink: "https://calendar.google.com/evt_123" });
     expect(insertedUrl).toContain(encodeURIComponent(CALENDAR_ID));
     expect(insertedBody.attendees).toBeUndefined();
+    // events.insert SÍ acepta hora local + timeZone por separado (a diferencia de freeBusy).
+    expect(insertedBody.start).toEqual({ dateTime: "2026-09-08T18:00:00", timeZone: "Europe/Madrid" });
   });
 });

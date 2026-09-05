@@ -187,6 +187,34 @@ async function callCalendarApi(
  * Usa freeBusy (un solo request, sin listar eventos completos). `timeZone`
  * deja mandar las horas LOCALES tal cual (sin convertir a offset UTC a mano).
  */
+/**
+ * Convierte una hora LOCAL de pared en `timeZone` (ej. "2026-09-08T18:00:00"
+ * en "Europe/Madrid") a un instante UTC real (con "Z"). A diferencia de
+ * events.insert/patch (que sí aceptan {dateTime, timeZone} por separado),
+ * la API freeBusy EXIGE que timeMin/timeMax vengan en RFC3339 completo con
+ * offset — mandarle la hora local pelada devuelve 400 "Bad Request".
+ */
+function zonedTimeToUtcIso(localDateTime: string, timeZone: string): string {
+  const asIfUtc = new Date(`${localDateTime}Z`);
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const p: Record<string, string> = {};
+  for (const part of dtf.formatToParts(asIfUtc)) p[part.type] = part.value;
+  // "24" a medianoche en formato de 24h sin AM/PM: normaliza a 0.
+  const hour = Number(p.hour) % 24;
+  const readingAsUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), hour, Number(p.minute), Number(p.second));
+  const offsetMs = asIfUtc.getTime() - readingAsUtc;
+  return new Date(asIfUtc.getTime() + offsetMs).toISOString();
+}
+
 export async function isVendorBusy(
   env: Env,
   calendarId: string,
@@ -202,8 +230,8 @@ export async function isVendorBusy(
       method: "POST",
       headers: { Authorization: `Bearer ${auth.token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        timeMin: startDateTime,
-        timeMax: endDateTime,
+        timeMin: zonedTimeToUtcIso(startDateTime, timeZone),
+        timeMax: zonedTimeToUtcIso(endDateTime, timeZone),
         timeZone,
         items: [{ id: calendarId }],
       }),
