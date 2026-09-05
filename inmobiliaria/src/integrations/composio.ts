@@ -267,6 +267,22 @@ async function fetchToolkitForSlug(env: Env, slug: string): Promise<string | nul
   return body.items?.[0]?.toolkit?.slug ?? null;
 }
 
+/**
+ * Manda un correo por Gmail vía Composio (GMAIL_SEND_EMAIL: recipient_email,
+ * subject, body — confirmado en vivo). Camino PRINCIPAL para avisos cuando el
+ * dueño ya conectó Gmail en Composio y no quiere dar de alta Resend aparte.
+ * `true` = enviado. `body` es texto plano (igual que espera Gmail).
+ */
+export async function sendGmailViaComposio(env: Env, to: string, subject: string, body: string): Promise<boolean> {
+  if (!composioEnabled(env)) return false;
+  const r = await executeComposioTool(env, "GMAIL_SEND_EMAIL", { recipient_email: to, subject, body });
+  if (!r.ok) {
+    console.warn(`[composio] envío de Gmail falló: ${r.error}`);
+    return false;
+  }
+  return true;
+}
+
 /** Solo para tests: limpia el cache en memoria entre casos. */
 export function __resetComposioCacheForTests(): void {
   cache = null;

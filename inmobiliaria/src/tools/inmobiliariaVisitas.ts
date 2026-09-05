@@ -15,7 +15,7 @@ import {
   deleteCalendarEvent,
 } from "../integrations/googleCalendar";
 import { mailerConfigured, sendMail } from "../mailer";
-import { composioEnabled, executeComposioTool } from "../integrations/composio";
+import { sendGmailViaComposio } from "../integrations/composio";
 
 // Tools de CITAS del nicho inmobiliaria — agendarVisitaPropiedad,
 // moverVisitaPropiedad, cancelarVisitaPropiedad. A diferencia de
@@ -45,22 +45,6 @@ function addMinutes(hora24: string, minutos: number): string {
 
 type EmailEstado = "enviado" | "sin_correo" | "fallo";
 
-/**
- * Manda un correo por Gmail vía Composio (GMAIL_SEND_EMAIL: recipient_email,
- * subject, body — confirmado en docs.composio.dev/toolkits/faq/gmail). Es el
- * camino PRINCIPAL cuando el dueño ya conectó Gmail en Composio (no necesita
- * Resend ni el binding de Cloudflare Email aparte). `true` = enviado.
- */
-async function enviarPorComposioGmail(env: Env, to: string, subject: string, body: string): Promise<boolean> {
-  if (!composioEnabled(env)) return false;
-  const r = await executeComposioTool(env, "GMAIL_SEND_EMAIL", { recipient_email: to, subject, body });
-  if (!r.ok) {
-    console.warn(`[inmobiliaria] envío por Composio Gmail falló: ${r.error}`);
-    return false;
-  }
-  return true;
-}
-
 async function enviarConfirmacion(
   env: Env,
   args: { to?: string; nombre: string; propiedad: string; fechaDisplay: string; hora: string; vendedor: string; telefono?: string },
@@ -80,7 +64,7 @@ Si necesitas cambiar o cancelar, responde a este email o contacta con nosotros.
 Saludos,
 Equipo de la inmobiliaria`;
 
-  if (await enviarPorComposioGmail(env, args.to, asunto, cuerpo)) return "enviado";
+  if (await sendGmailViaComposio(env, args.to, asunto, cuerpo)) return "enviado";
   if (!mailerConfigured(env)) return "fallo";
   const r = await sendMail(env, { to: args.to, subject: asunto, html: cuerpo.replace(/\n/g, "<br>"), text: cuerpo });
   return r.ok ? "enviado" : "fallo";
@@ -89,7 +73,7 @@ Equipo de la inmobiliaria`;
 /** Aviso interno al equipo — best-effort, nunca cambia el resultado de la tool. */
 async function avisarEquipo(env: Env, resumen: string): Promise<void> {
   if (!env.OWNER_EMAIL) return;
-  if (await enviarPorComposioGmail(env, env.OWNER_EMAIL, "Nueva actividad de visitas", resumen)) return;
+  if (await sendGmailViaComposio(env, env.OWNER_EMAIL, "Nueva actividad de visitas", resumen)) return;
   if (!mailerConfigured(env)) return;
   try {
     await sendMail(env, { to: env.OWNER_EMAIL, subject: "Nueva actividad de visitas", html: resumen.replace(/\n/g, "<br>"), text: resumen });

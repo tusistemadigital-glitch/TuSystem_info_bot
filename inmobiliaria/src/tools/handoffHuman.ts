@@ -9,6 +9,34 @@ import { selfOrigin } from "../lib/self-origin";
 import { isPro } from "../config";
 import { dispatchMobilePush } from "../mobile-push";
 import { renderPush } from "../lib/push-templates";
+import { composioEnabled, sendGmailViaComposio } from "../integrations/composio";
+
+/** ¿Hay algún camino para mandarle un email al dueño? (Composio Gmail o Resend). */
+function emailChannelConfigured(env: Env): boolean {
+  return Boolean(env.OWNER_EMAIL) && (composioEnabled(env) || Boolean(env.RESEND_API_KEY));
+}
+
+/**
+ * Email al dueño — Composio Gmail primero (si ya lo conectó, no necesita dar
+ * de alta Resend aparte), Resend como respaldo. `body` es texto plano; el
+ * respaldo por Resend lo convierte a HTML. Best-effort: nunca lanza.
+ */
+async function sendOwnerEmail(env: Env, subject: string, body: string): Promise<void> {
+  if (!env.OWNER_EMAIL) return;
+  if (await sendGmailViaComposio(env, env.OWNER_EMAIL, subject, body)) return;
+  if (!env.RESEND_API_KEY) return;
+  try {
+    const resend = new Resend(env.RESEND_API_KEY);
+    await resend.emails.send({
+      from: `${env.BUSINESS_NAME} Bot <onboarding@resend.dev>`,
+      to: env.OWNER_EMAIL,
+      subject,
+      html: body.replace(/\n/g, "<br>"),
+    });
+  } catch (e) {
+    console.error("[handoffHuman] resend failed:", e);
+  }
+}
 
 export interface HandoffTicketInput {
   conversationId: string | null;
@@ -43,22 +71,12 @@ export async function createHandoffTicket(
     await convs.setOpenTicket(conversationId, ticketId);
   }
 
-  // Send email if Resend configured
-  if (env.RESEND_API_KEY && env.OWNER_EMAIL) {
-    try {
-      const resend = new Resend(env.RESEND_API_KEY);
-      await resend.emails.send({
-        from: `${env.BUSINESS_NAME} Bot <onboarding@resend.dev>`,
-        to: env.OWNER_EMAIL,
-        subject: `[Bot] Ticket ${reason}: ${summary.slice(0, 60)}`,
-        html: `<p><strong>Categoría:</strong> ${category}</p>
-               <p><strong>Resumen:</strong> ${summary}</p>
-               <p><a href="${await selfOrigin(env)}/admin/tickets/${ticketId}">Ver ticket</a></p>`,
-      });
-    } catch (e) {
-      console.error("[handoffHuman] resend failed:", e);
-    }
-  }
+  // Email del ticket (Composio Gmail o Resend — ver sendOwnerEmail).
+  await sendOwnerEmail(
+    env,
+    `[Bot] Ticket ${reason}: ${summary.slice(0, 60)}`,
+    `Categoría: ${category}\nResumen: ${summary}\n\nVer ticket: ${await selfOrigin(env)}/admin/tickets/${ticketId}`,
+  );
 
   // Notify the owner. The ticket is already saved in D1 + dashboard; these
   // are just the "ping" so the owner sees it fast. Default channel is
@@ -128,7 +146,7 @@ export function handoffNotifyStatus(env: Env): { ok: boolean; channels: string[]
     env.TWILIO_HANDOFF_CONTENT_SID
   )
     channels.push("WhatsApp");
-  if (env.RESEND_API_KEY && env.OWNER_EMAIL) channels.push("Email");
+  if (emailChannelConfigured(env)) channels.push("Email");
   return { ok: channels.length > 0, channels };
 }
 
@@ -170,10 +188,10 @@ export async function messageOwner(
   msg: { heading: string; body: string; url?: string },
 ): Promise<void> {
   const line = env.TELEGRAM_BOT_TOKEN && env.OWNER_TELEGRAM_CHAT_ID;
-  const mail = env.RESEND_API_KEY && env.OWNER_EMAIL;
+  const mail = emailChannelConfigured(env);
   if (!line && !mail) {
     console.error(
-      `[messageOwner] "${msg.heading}" sin canal (falta Telegram o Resend+OWNER_EMAIL) — el dueño no lo verá`,
+      `[messageOwner] "${msg.heading}" sin canal (falta Telegram o Composio/Resend+OWNER_EMAIL) — el dueño no lo verá`,
     );
     return;
   }
@@ -192,18 +210,7 @@ export async function messageOwner(
   }
 
   if (mail) {
-    try {
-      const resend = new Resend(env.RESEND_API_KEY);
-      const htmlBody = msg.body.replace(/\n/g, "<br>");
-      await resend.emails.send({
-        from: `${env.BUSINESS_NAME} Bot <onboarding@resend.dev>`,
-        to: env.OWNER_EMAIL,
-        subject: msg.heading,
-        html: `<p>${htmlBody}</p>${msg.url ? `<p><a href="${msg.url}">Abrir panel</a></p>` : ""}`,
-      });
-    } catch (e) {
-      console.error("[messageOwner] resend failed:", e);
-    }
+    await sendOwnerEmail(env, msg.heading, `${msg.body}${msg.url ? `\n\n${msg.url}` : ""}`);
   }
 }
 
@@ -233,7 +240,7 @@ export async function notifyOwner(env: Env, notice: HandoffNotice): Promise<void
   if (!handoffNotifyStatus(env).ok && !waViaSetting) {
     console.error(
       `[notifyOwner] ticket ${notice.ticketId} creado pero SIN canal de aviso configurado ` +
-        "(faltan OWNER_TELEGRAM_CHAT_ID, OWNER_WA_NUMBER+template o RESEND_API_KEY+OWNER_EMAIL) — el dueño no será notificado",
+        "(faltan OWNER_TELEGRAM_CHAT_ID, OWNER_WA_NUMBER+template, o OWNER_EMAIL con Composio Gmail/RESEND_API_KEY) — el dueño no será notificado",
     );
     return;
   }
@@ -256,6 +263,11 @@ export async function notifyOwner(env: Env, notice: HandoffNotice): Promise<void
     } catch (e) {
       console.error("[notifyOwner] telegram failed:", e);
     }
+  }
+
+  // --- Email (Composio Gmail, o Resend si no) -------------------------------
+  if (emailChannelConfigured(env)) {
+    await sendOwnerEmail(env, `🚨 Nuevo ticket [${notice.reason}]`, `${notice.summary}\n\nVer: ${ticketUrl}`);
   }
 
   // --- Twilio WhatsApp via approved Content Template (optional) --------------
