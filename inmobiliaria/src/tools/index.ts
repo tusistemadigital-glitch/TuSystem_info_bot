@@ -11,7 +11,7 @@ import { scheduleAppointmentTool } from "./scheduleAppointment";
 import { catalogQueryTool } from "./catalogQuery";
 import { crearReservacionTool, tomarPedidoTool } from "./restaurante";
 import { calificarCompradorTool, registrarVisitaTool } from "./inmobiliaria";
-import { agendarVisitaPropiedadTool, moverVisitaPropiedadTool, cancelarVisitaPropiedadTool } from "./inmobiliariaVisitas";
+import { agendarVisitaPropiedadTool, moverVisitaPropiedadTool, cancelarVisitaPropiedadTool, listarVisitasPropiedadTool } from "./inmobiliariaVisitas";
 import { agendarCitaTool, verDisponibilidadTool, cancelarCitaTool } from "./servicios";
 import { registrarPedidoTool } from "./comercio";
 import { registrarProspectoTool } from "./crm";
@@ -119,6 +119,9 @@ export function buildTools(ctx: ToolContext) {
         tools.agendarVisitaPropiedad = agendarVisitaPropiedadTool(ctx.env, ctx.getConversationId);
         tools.moverVisitaPropiedad = moverVisitaPropiedadTool(ctx.env, ctx.getConversationId);
         tools.cancelarVisitaPropiedad = cancelarVisitaPropiedadTool(ctx.env, ctx.getConversationId);
+        // Consulta real a la BD — evita que el modelo recite de memoria una
+        // cita agendada turnos atrás y se equivoque de fecha (ver inmobiliariaVisitas.ts).
+        tools.listarVisitasPropiedad = listarVisitasPropiedadTool(ctx.env, ctx.getConversationId);
         break;
       case "tienda":
       case "panaderia":

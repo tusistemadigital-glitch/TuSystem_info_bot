@@ -8,6 +8,7 @@ import {
   agendarVisitaPropiedadTool,
   moverVisitaPropiedadTool,
   cancelarVisitaPropiedadTool,
+  listarVisitasPropiedadTool,
 } from "../../src/tools/inmobiliariaVisitas";
 
 // Martes 2026-09-01, dentro del horario L-V 9-14 y 17-20 a las 18:00.
@@ -273,5 +274,42 @@ describe("confirmación por email vía Composio Gmail (sin Resend/Cloudflare Ema
     expect(result.emailCliente).toBe("enviado");
     expect(sentTo).toBe("ana@example.com");
     expect(sentSubject).toContain("ID 101");
+  });
+});
+
+describe("listarVisitasPropiedadTool", () => {
+  it("devuelve las visitas activas de la conversación con los datos reales guardados (no lo que el modelo recuerde)", async () => {
+    const agendar = agendarVisitaPropiedadTool(env, () => convId);
+    await agendar.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, vendedor: "Diego", nombre: "Ana", telefono: "600" },
+      {} as any,
+    );
+
+    const listar = listarVisitasPropiedadTool(env, () => convId);
+    const result = (await listar.execute!({}, {} as any)) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.visitas).toHaveLength(1);
+    expect(result.visitas[0]).toMatchObject({ propiedad: "ID 101", vendedor: "Diego", hora: "18:00", estado: "confirmada" });
+  });
+
+  it("no incluye visitas canceladas", async () => {
+    const agendar = agendarVisitaPropiedadTool(env, () => convId);
+    await agendar.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, vendedor: "Diego", nombre: "Ana", telefono: "600" },
+      {} as any,
+    );
+    const cancelar = cancelarVisitaPropiedadTool(env, () => convId);
+    await cancelar.execute!({ propiedad: "ID 101" }, {} as any);
+
+    const listar = listarVisitasPropiedadTool(env, () => convId);
+    const result = (await listar.execute!({}, {} as any)) as any;
+    expect(result.visitas).toHaveLength(0);
+  });
+
+  it("devuelve lista vacía sin conversación asociada", async () => {
+    const listar = listarVisitasPropiedadTool(env, () => null);
+    const result = (await listar.execute!({}, {} as any)) as any;
+    expect(result).toEqual({ ok: true, visitas: [] });
   });
 });

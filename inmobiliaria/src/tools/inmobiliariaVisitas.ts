@@ -259,6 +259,39 @@ async function buscarVisitaObjetivo(
   return { visita: candidatas[0] };
 }
 
+/**
+ * Consulta las visitas YA agendadas (no canceladas) de este cliente en ESTA
+ * conversación, leídas directo de la base — nunca de la memoria del modelo.
+ * Existe porque el modelo, al recitar de memoria una cita agendada varios
+ * turnos atrás, se equivoca de día/fecha (mismo motivo por el que
+ * agendar/mover resuelven la fecha en código y no confían en el LLM).
+ */
+export function listarVisitasPropiedadTool(env: Env, getConversationId: () => string | null) {
+  return tool({
+    description:
+      "Consulta las visitas YA agendadas de este cliente en esta conversación (propiedad, fecha, hora, vendedor, " +
+      "estado). Llama esta tool SIEMPRE que necesites recordarle al cliente una cita existente, o antes de usar " +
+      "moverVisitaPropiedad/cancelarVisitaPropiedad si no tienes sus datos EXACTOS a la vista en este mismo turno — " +
+      "NUNCA recites de memoria una fecha/hora que dijiste en un turno anterior, puedes equivocarte de día.",
+    inputSchema: z.object({}),
+    execute: async () => {
+      const db = new Db(env.DB);
+      const repo = new PropertyVisitsRepo(db);
+      const visitas = await repo.findActive(getConversationId(), {});
+      return {
+        ok: true as const,
+        visitas: visitas.map((v) => ({
+          propiedad: v.propiedad,
+          vendedor: v.vendedor,
+          fecha: v.fecha_texto,
+          hora: v.hora,
+          estado: v.status,
+        })),
+      };
+    },
+  });
+}
+
 export function moverVisitaPropiedadTool(env: Env, getConversationId: () => string | null) {
   return tool({
     description:
