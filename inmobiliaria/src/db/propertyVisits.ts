@@ -42,21 +42,25 @@ export class PropertyVisitsRepo {
   constructor(private readonly db: Db) {}
 
   /**
-   * Vendedor a asignar cuando el cliente no tiene preferencia: si dio uno de
-   * los 3 nombres (case-insensitive) se respeta; si no, rota por el total de
-   * visitas activas ya registradas — reparto simple y determinista, sin
-   * depender de disponibilidad real de agenda (eso lo ve el humano si choca).
+   * Orden de candidatos a probar para asignar vendedor:
+   *  - si el cliente pidió uno de los 3 nombres (case-insensitive), es el
+   *    ÚNICO candidato — nunca se le asigna otro sin que él lo acepte
+   *    (ver REGLA DE VENDEDOR del prompt del giro).
+   *  - si no tiene preferencia, los 3 en orden rotado por el total de visitas
+   *    activas ya registradas (reparto justo) — el caller (la tool) prueba
+   *    cada uno en Google Calendar hasta encontrar uno libre.
    */
-  async resolveVendedor(preferido?: string): Promise<string> {
+  async candidateOrder(preferido?: string): Promise<string[]> {
     if (preferido) {
       const match = VENDEDORES.find((v) => v.toLowerCase() === preferido.trim().toLowerCase());
-      if (match) return match;
+      if (match) return [match];
     }
     const row = await this.db.first<{ n: number }>(
       `SELECT COUNT(*) as n FROM property_visits WHERE status != 'cancelada'`,
     );
     const n = row?.n ?? 0;
-    return VENDEDORES[n % VENDEDORES.length];
+    const start = n % VENDEDORES.length;
+    return [...VENDEDORES.slice(start), ...VENDEDORES.slice(0, start)];
   }
 
   async create(input: CreatePropertyVisitInput): Promise<string> {

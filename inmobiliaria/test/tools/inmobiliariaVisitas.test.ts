@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { generateKeyPairSync } from "node:crypto";
 import { createTestMiniflare } from "../helpers/miniflareSetup";
 import { Db } from "../../src/db/client";
 import { ConversationsRepo } from "../../src/db/conversations";
@@ -160,5 +161,73 @@ describe("cancelarVisitaPropiedadTool", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toBe("ambiguo");
     expect(result.candidatas).toHaveLength(2);
+  });
+});
+
+describe("agendarVisitaPropiedadTool con Google Calendar conectado", () => {
+  const { privateKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    publicKeyEncoding: { type: "spki", format: "pem" },
+  });
+  const fakeServiceAccount = { client_email: "bot-test@x.iam.gserviceaccount.com", private_key: privateKey };
+  const DIEGO_CAL = "diego@group.calendar.google.com";
+
+  const realFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = realFetch;
+  });
+
+  beforeEach(() => {
+    env.GOOGLE_SERVICE_ACCOUNT_JSON = btoa(JSON.stringify(fakeServiceAccount));
+    env.GOOGLE_CALENDAR_ID_DIEGO = DIEGO_CAL;
+  });
+
+  it("no agenda ni confirma si el vendedor pedido ya tiene una cita en Google Calendar (vendedor_no_disponible)", async () => {
+    global.fetch = vi.fn(async (url: any) => {
+      if (String(url).includes("/token")) {
+        return new Response(JSON.stringify({ access_token: "fake", expires_in: 3600 }), { status: 200 });
+      }
+      if (String(url).includes("/freeBusy")) {
+        return new Response(
+          JSON.stringify({ calendars: { [DIEGO_CAL]: { busy: [{ start: "x", end: "y" }] } } }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch to ${url}`);
+    }) as any;
+
+    const tool = agendarVisitaPropiedadTool(env, () => convId);
+    const result = (await tool.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, vendedor: "Diego", nombre: "Ana", telefono: "600" },
+      {} as any,
+    )) as any;
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("vendedor_no_disponible");
+  });
+
+  it("agenda y crea el evento en la agenda del vendedor cuando está libre", async () => {
+    let eventCreated = false;
+    global.fetch = vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.includes("/token")) return new Response(JSON.stringify({ access_token: "fake", expires_in: 3600 }), { status: 200 });
+      if (u.includes("/freeBusy")) return new Response(JSON.stringify({ calendars: { [DIEGO_CAL]: { busy: [] } } }), { status: 200 });
+      if (u.includes(`/calendars/${encodeURIComponent(DIEGO_CAL)}/events`)) {
+        eventCreated = true;
+        return new Response(JSON.stringify({ id: "evt_1" }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch to ${u}`);
+    }) as any;
+
+    const tool = agendarVisitaPropiedadTool(env, () => convId);
+    const result = (await tool.execute!(
+      { propiedad: "ID 101", fecha: FECHA_OK, hora: HORA_OK, vendedor: "Diego", nombre: "Ana", telefono: "600" },
+      {} as any,
+    )) as any;
+
+    expect(result.ok).toBe(true);
+    expect(result.enCalendario).toBe(true);
+    expect(eventCreated).toBe(true);
   });
 });

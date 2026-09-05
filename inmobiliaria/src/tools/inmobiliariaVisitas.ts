@@ -6,7 +6,14 @@ import { PropertyVisitsRepo, VENDEDORES, type PropertyVisit } from "../db/proper
 import { resolveNaturalDate, weekdayOf } from "../time/naturalDate";
 import { botTimezone } from "../time/dateAnchor";
 import { aHora24 } from "./servicios";
-import { calendarConfigured, createCalendarEvent, patchCalendarEvent, deleteCalendarEvent } from "../integrations/googleCalendar";
+import {
+  calendarConfigured,
+  vendorCalendarId,
+  isVendorBusy,
+  createCalendarEvent,
+  patchCalendarEvent,
+  deleteCalendarEvent,
+} from "../integrations/googleCalendar";
 import { mailerConfigured, sendMail } from "../mailer";
 
 // Tools de CITAS del nicho inmobiliaria — agendarVisitaPropiedad,
@@ -14,8 +21,9 @@ import { mailerConfigured, sendMail } from "../mailer";
 // registrarVisita (tools/inmobiliaria.ts, sin fecha concreta), estas SÍ
 // resuelven fecha/hora en CÓDIGO (nunca confían en que el modelo cuente días
 // de la semana — ver src/time/naturalDate.ts) y, si el dueño conectó
-// GOOGLE_SERVICE_ACCOUNT_JSON + GOOGLE_CALENDAR_ID, crean/mueven/cancelan el
-// evento DIRECTO en Google Calendar (sin pasar por Composio).
+// GOOGLE_SERVICE_ACCOUNT_JSON + la agenda del vendedor asignado, crean/mueven/
+// cancelan el evento DIRECTO en SU Google Calendar (sin pasar por Composio ni
+// por ninguna hoja de cálculo) y validan ahí mismo que no tenga ya una cita.
 
 const DURACION_VISITA_MIN = 30;
 
@@ -69,6 +77,37 @@ async function avisarEquipo(env: Env, resumen: string): Promise<void> {
   }
 }
 
+interface VendorPick {
+  vendedor: string;
+  calendarId?: string;
+}
+
+/**
+ * Prueba los candidatos EN ORDEN (uno solo si el cliente pidió un vendedor
+ * específico) y devuelve el primero libre. Un vendedor sin agenda configurada
+ * se trata como "libre" (no hay forma de checar) — degrada, no bloquea.
+ * `null` = todos los candidatos con agenda configurada están ocupados.
+ */
+async function elegirVendedorLibre(
+  env: Env,
+  candidatos: string[],
+  start: string,
+  end: string,
+  tz: string,
+): Promise<VendorPick | null> {
+  for (const vendedor of candidatos) {
+    const calendarId = vendorCalendarId(env, vendedor);
+    if (!calendarId) return { vendedor, calendarId: undefined };
+    const estado = await isVendorBusy(env, calendarId, start, end, tz);
+    if (!estado.ok) {
+      console.warn(`[inmobiliaria] no se pudo consultar disponibilidad de ${vendedor}: ${estado.reason} — se asume libre`);
+      return { vendedor, calendarId };
+    }
+    if (!estado.busy) return { vendedor, calendarId };
+  }
+  return null;
+}
+
 export function agendarVisitaPropiedadTool(env: Env, getConversationId: () => string | null) {
   return tool({
     description:
@@ -111,14 +150,27 @@ export function agendarVisitaPropiedadTool(env: Env, getConversationId: () => st
 
       const db = new Db(env.DB);
       const repo = new PropertyVisitsRepo(db);
-      const vendedorFinal = await repo.resolveVendedor(vendedor === "indiferente" ? undefined : vendedor);
+      const tz = botTimezone(env);
+      const start = `${resuelta.iso}T${hora24}:00`;
+      const end = `${resuelta.iso}T${addMinutes(hora24, DURACION_VISITA_MIN)}:00`;
+
+      const candidatos = await repo.candidateOrder(vendedor === "indiferente" ? undefined : vendedor);
+      const elegido = calendarConfigured(env) ? await elegirVendedorLibre(env, candidatos, start, end, tz) : { vendedor: candidatos[0] };
+      if (!elegido) {
+        return {
+          ok: false as const,
+          error: "vendedor_no_disponible" as const,
+          message:
+            candidatos.length === 1
+              ? `${candidatos[0]} ya tiene una cita ese día y hora. Ofrece al cliente otro vendedor o buscar otro horario con ${candidatos[0]}.`
+              : "Ningún vendedor está libre en ese horario. Ofrece al cliente otro día u hora.",
+        };
+      }
+      const vendedorFinal = elegido.vendedor;
 
       let calendarEventId: string | undefined;
-      if (calendarConfigured(env)) {
-        const tz = botTimezone(env);
-        const start = `${resuelta.iso}T${hora24}:00`;
-        const end = `${resuelta.iso}T${addMinutes(hora24, DURACION_VISITA_MIN)}:00`;
-        const evento = await createCalendarEvent(env, {
+      if (elegido.calendarId) {
+        const evento = await createCalendarEvent(env, elegido.calendarId, {
           summary: `Visita ${propiedad} — ${nombre}`,
           description: [`Vendedor: ${vendedorFinal}`, `Teléfono: ${telefono}`, clienteEmail ? `Email: ${clienteEmail}` : ""]
             .filter(Boolean)
@@ -241,13 +293,30 @@ export function moverVisitaPropiedadTool(env: Env, getConversationId: () => stri
         };
       }
       const visita = encontrada.visita;
+      const tz = botTimezone(env);
+      const nuevoStart = `${nueva.iso}T${horaNueva24}:00`;
+      const nuevoEnd = `${nueva.iso}T${addMinutes(horaNueva24, DURACION_VISITA_MIN)}:00`;
+      const calendarId = vendorCalendarId(env, visita.vendedor);
+
+      if (calendarId) {
+        const estado = await isVendorBusy(env, calendarId, nuevoStart, nuevoEnd, tz);
+        if (estado.ok && estado.busy) {
+          return {
+            ok: false as const,
+            error: "vendedor_no_disponible" as const,
+            message: `${visita.vendedor} ya tiene otra cita en ese horario nuevo. Ofrece al cliente otro vendedor o buscar otro horario con ${visita.vendedor}.`,
+          };
+        }
+        if (!estado.ok) {
+          console.warn(`[inmobiliaria] no se pudo consultar disponibilidad de ${visita.vendedor} al mover: ${estado.reason} — se asume libre`);
+        }
+      }
 
       let calendarEventId = visita.calendar_event_id ?? undefined;
-      if (calendarEventId && calendarConfigured(env)) {
-        const tz = botTimezone(env);
-        const r = await patchCalendarEvent(env, calendarEventId, {
-          startDateTime: `${nueva.iso}T${horaNueva24}:00`,
-          endDateTime: `${nueva.iso}T${addMinutes(horaNueva24, DURACION_VISITA_MIN)}:00`,
+      if (calendarEventId && calendarId) {
+        const r = await patchCalendarEvent(env, calendarId, calendarEventId, {
+          startDateTime: nuevoStart,
+          endDateTime: nuevoEnd,
           timeZone: tz,
         });
         if (!r.ok) {
@@ -317,8 +386,9 @@ export function cancelarVisitaPropiedadTool(env: Env, getConversationId: () => s
       }
       const visita = encontrada.visita;
 
-      if (visita.calendar_event_id && calendarConfigured(env)) {
-        const r = await deleteCalendarEvent(env, visita.calendar_event_id);
+      const calendarId = vendorCalendarId(env, visita.vendedor);
+      if (visita.calendar_event_id && calendarId) {
+        const r = await deleteCalendarEvent(env, calendarId, visita.calendar_event_id);
         if (!r.ok) {
           console.error(`[inmobiliaria] no se pudo cancelar el evento de calendario ${visita.calendar_event_id}: ${r.reason}`);
           return {

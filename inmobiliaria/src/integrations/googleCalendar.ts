@@ -1,11 +1,15 @@
 import type { Env } from "../env";
+import { VENDEDORES, type Vendedor } from "../db/propertyVisits";
 
 // Cliente directo de Google Calendar API v3 para las tools de visitas de
 // inmobiliaria (agendarVisitaPropiedad, moverVisitaPropiedad,
 // cancelarVisitaPropiedad) — SIN pasar por Composio. Usa un service account
 // (GOOGLE_SERVICE_ACCOUNT_JSON, base64 del JSON que descargas en Google Cloud
-// Console) al que el dueño comparte su calendario (GOOGLE_CALENDAR_ID) con
-// permiso "Realizar cambios en los eventos".
+// Console). CADA VENDEDOR tiene SU PROPIA agenda (GOOGLE_CALENDAR_ID_<VENDEDOR>),
+// compartida con el service account con permiso "Realizar cambios en los
+// eventos" — así el bot valida disponibilidad y agenda/mueve/cancela en la
+// agenda real de quien atiende la visita, sin depender de ninguna hoja de
+// cálculo para saber quién está libre.
 //
 // Flujo: firma un JWT (RS256) con la private_key del service account, lo
 // cambia por un access_token OAuth2 (grant_type jwt-bearer), y llama la API
@@ -24,8 +28,23 @@ interface ServiceAccountJson {
 
 let cachedToken: { accessToken: string; expiresAt: number; clientEmail: string } | null = null;
 
+const VENDOR_CALENDAR_ENV: Record<Vendedor, keyof Env> = {
+  Diego: "GOOGLE_CALENDAR_ID_DIEGO",
+  Alfonso: "GOOGLE_CALENDAR_ID_ALFONSO",
+  Ismael: "GOOGLE_CALENDAR_ID_ISMAEL",
+};
+
+/** ID del calendario de ESE vendedor, o undefined si no está configurado. */
+export function vendorCalendarId(env: Env, vendedor: string): string | undefined {
+  const key = VENDOR_CALENDAR_ENV[vendedor as Vendedor];
+  const id = key ? (env[key] as string | undefined) : undefined;
+  return id?.trim() || undefined;
+}
+
+/** ¿Hay al menos UN vendedor con agenda configurada? (service account + su calendario). */
 export function calendarConfigured(env: Env): boolean {
-  return Boolean(env.GOOGLE_SERVICE_ACCOUNT_JSON && env.GOOGLE_CALENDAR_ID);
+  if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) return false;
+  return VENDEDORES.some((v) => Boolean(vendorCalendarId(env, v)));
 }
 
 function parseServiceAccount(base64Json: string): ServiceAccountJson | null {
@@ -134,16 +153,16 @@ export type CalendarResult =
 
 async function callCalendarApi(
   env: Env,
+  calendarId: string,
   method: "POST" | "PATCH" | "DELETE",
   path: string,
   body?: unknown,
 ): Promise<CalendarResult | { ok: true; empty: true }> {
-  if (!calendarConfigured(env)) return { ok: false, reason: "not_configured" };
   const auth = await getAccessToken(env);
   if (!auth.ok) return { ok: false, reason: auth.reason };
 
   try {
-    const res = await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(env.GOOGLE_CALENDAR_ID!)}/events${path}`, {
+    const res = await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${auth.token}`,
@@ -163,12 +182,54 @@ async function callCalendarApi(
   }
 }
 
-export async function createCalendarEvent(env: Env, input: CalendarEventInput): Promise<CalendarResult> {
+/**
+ * ¿El vendedor ya tiene algo agendado en su calendario en ese rango?
+ * Usa freeBusy (un solo request, sin listar eventos completos). `timeZone`
+ * deja mandar las horas LOCALES tal cual (sin convertir a offset UTC a mano).
+ */
+export async function isVendorBusy(
+  env: Env,
+  calendarId: string,
+  startDateTime: string,
+  endDateTime: string,
+  timeZone: string,
+): Promise<{ ok: true; busy: boolean } | { ok: false; reason: string }> {
+  const auth = await getAccessToken(env);
+  if (!auth.ok) return { ok: false, reason: auth.reason };
+
+  try {
+    const res = await fetch(`${CALENDAR_API}/freeBusy`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${auth.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        timeMin: startDateTime,
+        timeMax: endDateTime,
+        timeZone,
+        items: [{ id: calendarId }],
+      }),
+    });
+    if (!res.ok) {
+      console.error(`[google-calendar] freeBusy http_${res.status} · ${(await res.text().catch(() => "")).slice(0, 300)}`);
+      return { ok: false, reason: `http_${res.status}` };
+    }
+    const data = (await res.json()) as { calendars?: Record<string, { busy?: unknown[]; errors?: unknown[] }> };
+    const cal = data.calendars?.[calendarId];
+    if (cal?.errors?.length) {
+      console.error(`[google-calendar] freeBusy errors para ${calendarId}:`, JSON.stringify(cal.errors));
+      return { ok: false, reason: "calendar_error" };
+    }
+    return { ok: true, busy: Boolean(cal?.busy?.length) };
+  } catch (e: any) {
+    return { ok: false, reason: `transient:${String(e?.message ?? e)}` };
+  }
+}
+
+export async function createCalendarEvent(env: Env, calendarId: string, input: CalendarEventInput): Promise<CalendarResult> {
   // NO se manda `attendees`: un service account sin Domain-Wide Delegation
   // (imposible en una cuenta de Gmail normal, solo existe en Google Workspace)
   // no puede invitar asistentes — Google responde 403 "forbiddenForServiceAccounts"
   // y el evento ni se crea. El email del cliente ya va en la descripción.
-  const result = await callCalendarApi(env, "POST", "", {
+  const result = await callCalendarApi(env, calendarId, "POST", "", {
     summary: input.summary,
     description: input.description,
     start: { dateTime: input.startDateTime, timeZone: input.timeZone },
@@ -179,18 +240,23 @@ export async function createCalendarEvent(env: Env, input: CalendarEventInput): 
 
 export async function patchCalendarEvent(
   env: Env,
+  calendarId: string,
   eventId: string,
   input: Pick<CalendarEventInput, "startDateTime" | "endDateTime" | "timeZone">,
 ): Promise<CalendarResult> {
-  const result = await callCalendarApi(env, "PATCH", `/${encodeURIComponent(eventId)}`, {
+  const result = await callCalendarApi(env, calendarId, "PATCH", `/${encodeURIComponent(eventId)}`, {
     start: { dateTime: input.startDateTime, timeZone: input.timeZone },
     end: { dateTime: input.endDateTime, timeZone: input.timeZone },
   });
   return result as CalendarResult;
 }
 
-export async function deleteCalendarEvent(env: Env, eventId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const result = await callCalendarApi(env, "DELETE", `/${encodeURIComponent(eventId)}`);
+export async function deleteCalendarEvent(
+  env: Env,
+  calendarId: string,
+  eventId: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const result = await callCalendarApi(env, calendarId, "DELETE", `/${encodeURIComponent(eventId)}`);
   if (!result.ok) return result;
   return { ok: true };
 }
